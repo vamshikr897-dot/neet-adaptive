@@ -1,0 +1,390 @@
+{
+  "Botany": {
+    "Cell Structure and Function": {
+      "grade_level": "11",
+      "concepts": {
+        "Cell Theory & Cell Types": 3.0,
+        "Cell Organelles": 4.0,
+        "Cell Division (Mitosis/Meiosis)": 4.5,
+        "Biomolecules (Proteins, Carbohydrates, Lipids, Nucleic Acids)": 3.5
+      }
+    },
+    "Plant Physiology": {
+      "grade_level": "11",
+      "concepts": {
+        "Photosynthesis": 4.5,
+        "Respiration in Plants": 3.5,
+        "Plant Growth & Hormones": 3.5,
+        "Mineral Nutrition": 3.0,
+        "Transport in Plants": 3.0
+      }
+    },
+    "Sexual Reproduction in Flowering Plants": {
+      "grade_level": "12",
+      "concepts": {
+        "Pollination": 3.0,
+        "Fertilization & Post-fertilization Events": 3.5,
+        "Seed & Fruit Development": 2.5
+      }
+    },
+    "Genetics and Evolution": {
+      "grade_level": "12",
+      "concepts": {
+        "Mendelian Inheritance & Exceptions": 4.5,
+        "Molecular Basis of Inheritance (DNA/RNA/Replication)": 5.0,
+        "Evolution & Natural Selection": 3.5,
+        "Human Evolution": 2.5,
+        "Linkage & Recombination": 3.0,
+        "Pedigree Analysis": 2.5,
+        "Genetic Disorders": 3.0
+      }
+    },
+    "Ecology": {
+      "grade_level": "12",
+      "concepts": {
+        "Ecosystem Structure & Function": 4.0,
+        "Organisms & Populations": 3.5,
+        "Biodiversity & Conservation": 3.5,
+        "Environmental Issues (Pollution, Ozone, Greenhouse Effect)": 3.0
+      }
+    },
+    "Diversity in the Living World": {
+      "grade_level": "11",
+      "concepts": {
+        "Taxonomy & Classification Systems": 3.5,
+        "Five Kingdom Classification (Monera, Protista, Fungi)": 3.5,
+        "Plant Kingdom (Algae, Bryophytes, Pteridophytes, Gymnosperms, Angiosperms)": 4.0,
+        "Viruses, Viroids & Lichens": 2.5
+      }
+    },
+    "Structural Organisation in Plants": {
+      "grade_level": "11",
+      "concepts": {
+        "Morphology of Flowering Plants": 3.5,
+        "Anatomy & Tissue Systems": 3.0,
+        "Plant Families (Identification)": 2.0
+      }
+    }
+  },
+  "Zoology": {
+    "Human Physiology": {
+      "grade_level": "11",
+      "concepts": {
+        "Digestion & Absorption": 4.0,
+        "Breathing & Exchange of Gases": 4.0,
+        "Body Fluids & Circulation": 4.5,
+        "Excretory System": 4.0,
+        "Locomotion & Movement": 3.5,
+        "Neural Control & Coordination": 4.5,
+        "Chemical Coordination (Endocrine)": 4.0
+      }
+    },
+    "Human Reproduction": {
+      "grade_level": "12",
+      "concepts": {
+        "Male & Female Reproductive Systems": 3.5,
+        "Gametogenesis & Menstrual Cycle": 4.0,
+        "Reproductive Health": 3.0
+      }
+    },
+    "Human Health and Disease": {
+      "grade_level": "12",
+      "concepts": {
+        "Common Diseases & Pathogens": 3.5,
+        "Immunity": 4.0,
+        "Drugs & Alcohol Abuse": 2.0
+      }
+    },
+    "Biotechnology": {
+      "grade_level": "12",
+      "concepts": {
+        "Principles & Processes (rDNA tech)": 3.0,
+        "Applications in Health & Agriculture": 3.0
+      }
+    },
+    "Structural Organisation in Animals": {
+      "grade_level": "11",
+      "concepts": {
+        "Animal Kingdom Classification (Non-chordates to Phyla)": 4.0,
+        "Animal Kingdom Classification (Chordates to Classes)": 3.5,
+        "Animal Tissues": 2.5
+      }
+    },
+    "Biology and Human Welfare": {
+      "grade_level": "12",
+      "concepts": {
+        "Microbes in Human Welfare (Food, Industry, Sewage Treatment)": 3.0,
+        "Biofertilizers & Biocontrol Agents": 2.5,
+        "Cancer & AIDS": 2.5
+      }
+    }
+  },
+  "Physics": {
+    "Laws of Motion": {
+      "grade_level": "11",
+      "concepts": {
+        "Newton's Laws & Friction": 4.0,
+        "Circular Motion": 3.0
+      }
+    },
+    "Work, Energy and Power": {
+      "grade_level": "11",
+      "concepts": {
+        "Work-Energy Theorem": 3.0,
+        "Conservation of Energy": 3.5,
+        "Collisions": 3.0
+      }
+    },
+    "Current Electricity": {
+      "grade_level": "12",
+      "concepts": {
+        "Ohm's Law & Resistance": 3.5,
+        "Kirchhoff's Laws & Circuits": 4.0,
+        "Wheatstone Bridge & Meter Bridge": 3.0
+      }
+    },
+    "Magnetic Effects of Current & EMI": {
+      "grade_level": "12",
+      "concepts": {
+        "Force on Current-Carrying Conductor": 3.5,
+        "Electromagnetic Induction": 4.0,
+        "AC Circuits": 3.5
+      }
+    },
+    "Dual Nature of Matter & Atoms/Nuclei": {
+      "grade_level": "12",
+      "concepts": {
+        "Photoelectric Effect": 4.0,
+        "Bohr Model & Atomic Spectra": 3.5,
+        "Radioactivity & Nuclear Reactions": 4.0,
+        "de Broglie Wavelength": 3.0,
+        "Mass-Energy Equivalence & Binding Energy": 3.0,
+        "Nuclear Fission & Fusion": 3.0
+      }
+    },
+    "Physical World and Measurement": {
+      "grade_level": "11",
+      "concepts": {
+        "Units, Dimensions & Error Analysis": 2.5
+      }
+    },
+    "Kinematics": {
+      "grade_level": "11",
+      "concepts": {
+        "Motion in a Straight Line": 3.0,
+        "Vectors & Relative Velocity": 3.5,
+        "Projectile Motion": 4.0
+      }
+    },
+    "Motion of System of Particles & Rigid Body": {
+      "grade_level": "11",
+      "concepts": {
+        "Centre of Mass": 3.0,
+        "Torque & Angular Momentum": 3.5,
+        "Moment of Inertia & Rotational Dynamics": 3.5
+      }
+    },
+    "Gravitation": {
+      "grade_level": "11",
+      "concepts": {
+        "Newton's Law of Gravitation & Variation of g": 3.5,
+        "Kepler's Laws & Orbital Motion": 3.5,
+        "Escape Velocity & Satellites": 3.0
+      }
+    },
+    "Properties of Bulk Matter": {
+      "grade_level": "11",
+      "concepts": {
+        "Elasticity (Stress-Strain, Moduli)": 3.0,
+        "Fluid Mechanics (Pascal's Law, Viscosity, Bernoulli)": 3.5,
+        "Surface Tension & Capillarity": 2.5,
+        "Thermal Properties of Matter & Calorimetry": 3.0
+      }
+    },
+    "Thermodynamics": {
+      "grade_level": "11",
+      "concepts": {
+        "Laws of Thermodynamics": 3.5,
+        "Thermodynamic Processes & Heat Engines": 3.0,
+        "Entropy & Carnot Engine": 2.5
+      }
+    },
+    "Kinetic Theory of Gases": {
+      "grade_level": "11",
+      "concepts": {
+        "Kinetic Theory Postulates & Gas Laws": 2.5,
+        "Degrees of Freedom & RMS Speed": 2.5
+      }
+    },
+    "Oscillations and Waves": {
+      "grade_level": "11",
+      "concepts": {
+        "Simple Harmonic Motion": 4.0,
+        "Wave Motion & Superposition": 3.0,
+        "Sound Waves, Beats & Resonance": 2.5
+      }
+    },
+    "Electrostatics": {
+      "grade_level": "12",
+      "concepts": {
+        "Coulomb's Law & Electric Field": 4.0,
+        "Gauss's Law & Applications": 3.5,
+        "Electric Potential & Potential Energy": 3.5,
+        "Capacitors & Capacitance": 3.5
+      }
+    },
+    "Electromagnetic Waves": {
+      "grade_level": "12",
+      "concepts": {
+        "Displacement Current & EM Wave Characteristics": 2.0,
+        "Electromagnetic Spectrum & Applications": 2.5
+      }
+    },
+    "Ray & Wave Optics": {
+      "grade_level": "12",
+      "concepts": {
+        "Reflection & Refraction (Mirrors/Lenses)": 4.0,
+        "Total Internal Reflection & Optical Instruments": 3.0,
+        "Interference & Young's Double Slit": 3.5,
+        "Diffraction & Polarization": 3.0
+      }
+    },
+    "Electronic Devices": {
+      "grade_level": "12",
+      "concepts": {
+        "Semiconductors & p-n Junction Diode": 3.0,
+        "Rectifiers, LEDs & Photodiodes": 2.5,
+        "Logic Gates": 2.0
+      }
+    }
+  },
+  "Chemistry": {
+    "Chemical Bonding and Molecular Structure": {
+      "grade_level": "11",
+      "concepts": {
+        "VSEPR & Hybridization": 4.0,
+        "Molecular Orbital Theory": 3.0
+      }
+    },
+    "Equilibrium": {
+      "grade_level": "11",
+      "concepts": {
+        "Chemical Equilibrium & Le Chatelier's Principle": 3.5,
+        "Ionic Equilibrium & pH/Buffers": 4.0
+      }
+    },
+    "Coordination Compounds": {
+      "grade_level": "12",
+      "concepts": {
+        "Nomenclature & Isomerism": 3.0,
+        "Bonding Theories (VBT/CFT)": 3.5
+      }
+    },
+    "Organic Chemistry - GOC & Hydrocarbons": {
+      "grade_level": "11",
+      "concepts": {
+        "Reaction Mechanisms (SN1/SN2/Elimination)": 4.5,
+        "Isomerism & Nomenclature": 3.5,
+        "Hydrocarbon Reactions": 3.5
+      }
+    },
+    "Biomolecules": {
+      "grade_level": "12",
+      "concepts": {
+        "Carbohydrates & Proteins": 3.0,
+        "Enzymes & Vitamins": 3.0,
+        "Nucleic Acids (DNA/RNA Structure)": 3.0
+      }
+    },
+    "Some Basic Concepts of Chemistry": {
+      "grade_level": "11",
+      "concepts": {
+        "Mole Concept & Stoichiometry": 4.0,
+        "Laws of Chemical Combination": 2.5,
+        "Empirical & Molecular Formulas": 2.5
+      }
+    },
+    "Structure of Atom": {
+      "grade_level": "11",
+      "concepts": {
+        "Bohr Model & Atomic Spectra": 3.0,
+        "Quantum Numbers & Orbitals": 3.5,
+        "Electronic Configuration Rules": 3.5,
+        "de Broglie & Heisenberg Uncertainty": 3.0
+      }
+    },
+    "Classification of Elements and Periodicity": {
+      "grade_level": "11",
+      "concepts": {
+        "Periodic Trends (Atomic/Ionic Radius, IE, EA)": 3.5,
+        "s, p, d, f Block Classification": 2.5
+      }
+    },
+    "Chemical Thermodynamics": {
+      "grade_level": "11",
+      "concepts": {
+        "Enthalpy & Thermochemistry": 3.5,
+        "Entropy & Gibbs Free Energy": 3.5,
+        "First & Second Laws of Thermodynamics": 3.0
+      }
+    },
+    "Solutions": {
+      "grade_level": "12",
+      "concepts": {
+        "Concentration Terms & Raoult's Law": 2.5,
+        "Colligative Properties": 3.5,
+        "Van't Hoff Factor & Abnormal Molar Mass": 2.5
+      }
+    },
+    "Redox Reactions and Electrochemistry": {
+      "grade_level": "12",
+      "concepts": {
+        "Oxidation Numbers & Balancing Redox Reactions": 3.0,
+        "Galvanic Cells & Electrode Potential": 3.5,
+        "Nernst Equation & Conductance": 3.0,
+        "Electrolysis & Faraday's Laws": 2.5
+      }
+    },
+    "Chemical Kinetics": {
+      "grade_level": "12",
+      "concepts": {
+        "Rate Laws & Order of Reaction": 3.5,
+        "Arrhenius Equation & Activation Energy": 3.0,
+        "Collision Theory": 2.0
+      }
+    },
+    "p-Block Elements": {
+      "grade_level": "11",
+      "concepts": {
+        "Group 13 & 14 (Boron & Carbon Family)": 3.0,
+        "Group 15-18 (N, O, Halogens, Noble Gases) Family": 4.0,
+        "Anomalous Behaviour & Important Compounds": 3.0
+      }
+    },
+    "d- and f-Block Elements": {
+      "grade_level": "12",
+      "concepts": {
+        "Transition Elements: Properties & Oxidation States": 3.5,
+        "KMnO4 & K2Cr2O7 Preparation/Uses": 3.0,
+        "Lanthanoids & Actinoids": 2.5
+      }
+    },
+    "Purification, Characterisation and Practical Organic Chemistry": {
+      "grade_level": "11",
+      "concepts": {
+        "Purification Techniques (Crystallization, Distillation, Chromatography)": 2.0,
+        "Qualitative & Quantitative Elemental Analysis": 2.0,
+        "Functional Group Detection & Salt Analysis": 2.0
+      }
+    },
+    "Organic Compounds with Halogens, Oxygen and Nitrogen": {
+      "grade_level": "12",
+      "concepts": {
+        "Haloalkanes & Haloarenes": 3.5,
+        "Alcohols, Phenols & Ethers": 3.5,
+        "Aldehydes, Ketones & Carboxylic Acids": 4.5,
+        "Amines & Diazonium Salts": 3.0
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+venv/
+.venv/
+data/neet.db
+data/llm_call_log.jsonl
+.pytest_cache/
+*.pyo
+.claude/settings.local.json
