@@ -2,13 +2,13 @@ import math
 import random
 
 import config
+from agents.gap_analyser import _compute_mastery_pct
 from agents.time_model import expected_time_seconds
 from models.agent_io import ConceptSpec, QuestionSpec
 from models.session_state import SessionState
 
 ABILITY_STEP_BIG = 0.5
 ABILITY_STEP_SMALL = 0.25
-WEAK_CONCEPT_THRESHOLD = 0.5
 WEAK_RETEST_WARMUP_QUESTIONS = 3  # don't prioritize retesting weak concepts before this question index
 COVERAGE_CAP_SLACK = 1  # extra allowance on top of the even-split cap
 
@@ -20,7 +20,7 @@ TYPE_WEIGHTS_BY_ABILITY = [
 
 
 def _time_confidence_factor(
-    question_type: str | None, difficulty: int, time_taken_seconds: float | None
+    question_type: str | None, difficulty: int, time_taken_seconds: float | None, correct: bool
 ) -> float:
     """Scales the ability step by how the actual time compares to the expected pace.
 
@@ -29,12 +29,19 @@ def _time_confidence_factor(
     dampens it (answered slower than expected -> less confidence, since struggling to finish in
     time suggests the student is near the edge of their ability regardless of the outcome).
     Returns 1.0 (no change) when time data isn't available.
+
+    Exception: a WRONG answer much faster than expected looks like a rushed guess rather than a
+    deliberate, diagnostic mistake, so it dampens the (negative) step instead of amplifying it -
+    a lucky/unlucky guess shouldn't swing the estimate as hard as a genuine wrong answer would.
     """
     if question_type is None or time_taken_seconds is None:
         return 1.0
 
     expected = expected_time_seconds(question_type, difficulty)
     ratio = time_taken_seconds / expected
+
+    if not correct and ratio < config.GUESS_TIME_RATIO_THRESHOLD:
+        return config.GUESS_DAMPING_FACTOR
 
     if ratio <= 1.0:
         bonus = config.TIME_CONFIDENCE_BONUS_MAX * (1.0 - ratio)
@@ -53,7 +60,7 @@ def update_ability(
     question_type: str | None = None,
     time_taken_seconds: float | None = None,
 ) -> float:
-    time_factor = _time_confidence_factor(question_type, difficulty, time_taken_seconds)
+    time_factor = _time_confidence_factor(question_type, difficulty, time_taken_seconds, correct)
     if correct:
         step = ABILITY_STEP_BIG if difficulty >= ability else ABILITY_STEP_SMALL
         ability += step * time_factor
@@ -76,21 +83,34 @@ def _select_concept(state: SessionState, available_concepts: list[ConceptSpec]) 
         c for c in available_concepts if state.concept_coverage.get(c.name, 0) < max_per_concept
     ] or available_concepts
 
-    weak = [
-        c
+    # Weak = difficulty-weighted mastery below the same threshold the report uses for a "weak"
+    # verdict (not a separate raw-accuracy heuristic), so a concept flagged weak here matches
+    # what the student will actually see as weak in their report.
+    retest_active = state.current_question_index >= WEAK_RETEST_WARMUP_QUESTIONS
+    weak_names = {
+        c.name
         for c in eligible
         if (tally := state.failure_mode_tally.get(c.name))
         and tally.attempt_count > 0
-        and tally.correct_count / tally.attempt_count < WEAK_CONCEPT_THRESHOLD
-    ]
+        and (mastery := _compute_mastery_pct(state.difficulty_history, c.name)) is not None
+        and mastery < config.MASTERY_WEAK_THRESHOLD
+    }
 
-    pool = weak if (weak and state.current_question_index >= WEAK_RETEST_WARMUP_QUESTIONS) else eligible
+    def sort_key(c: ConceptSpec) -> tuple[int, float]:
+        coverage = state.concept_coverage.get(c.name, 0)
+        boost = config.WEAK_RETEST_COVERAGE_BOOST if (retest_active and c.name in weak_names) else 0
+        # Weak concepts look "less covered" (up to the boost), so they're preferred in the
+        # breadth-first ranking below without categorically excluding other concepts - a
+        # genuinely uncovered concept (coverage 0) still outranks a boosted weak one.
+        effective_coverage = max(0, coverage - boost)
+        return (-effective_coverage, c.pyq_weight)
 
-    # Breadth first (least-covered concept), pyq_weight only breaks ties among equally-covered
-    # concepts - otherwise a single high-weight concept would dominate the whole session.
-    return max(
-        pool, key=lambda c: (-state.concept_coverage.get(c.name, 0), c.pyq_weight)
-    ).name
+    # Breadth first (least-covered concept) with a weak-concept boost as above; pyq_weight only
+    # breaks ties among equally-(effectively-)covered concepts - otherwise a single high-weight
+    # concept would dominate the whole session. True ties are broken randomly, not by list order.
+    best_score = max(sort_key(c) for c in eligible)
+    best = [c for c in eligible if sort_key(c) == best_score]
+    return random.choice(best).name
 
 
 def _type_weights_for_ability(ability: float) -> dict[str, float]:

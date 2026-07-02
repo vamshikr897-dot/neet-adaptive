@@ -17,7 +17,7 @@ GRADE_LEVELS = ["11", "12"]
 QUESTION_TYPES = ["recall", "exception", "diagram", "numerical", "multi_concept"]
 
 GENERATOR_BATCH_SIZE = int(os.getenv("GENERATOR_BATCH_SIZE", 3))
-POOL_QUESTIONS_PER_CONCEPT = int(os.getenv("POOL_QUESTIONS_PER_CONCEPT", 4))
+POOL_QUESTIONS_PER_CONCEPT = int(os.getenv("POOL_QUESTIONS_PER_CONCEPT", 10))
 QUESTIONS_PER_SESSION = int(os.getenv("QUESTIONS_PER_SESSION", 10))  # kept for router coverage-cap
 
 # Adaptive session termination
@@ -35,7 +35,7 @@ MASTERY_STRONG_THRESHOLD = 75.0
 MASTERY_WEAK_THRESHOLD = 50.0
 MASTERY_LOW_CONFIDENCE_MIN_ATTEMPTS = 5
 
-PRIORITY_CONCEPT_PYQ_WEIGHT_MIN = 3.5
+PRIORITY_CONCEPT_PYQ_WEIGHT_MIN = 3.0
 
 SPEED_ACCURACY_GAP_THRESHOLD_PCT = 15.0
 TIME_RATIO_OUTLIER_CAP = 5.0
@@ -46,7 +46,17 @@ HESITATION_TIME_RATIO_THRESHOLD = 1.5
 TIME_CONFIDENCE_BONUS_MAX = 0.3
 TIME_UNCERTAINTY_DAMPING_MAX = 0.3
 
-PROGRESSION_MIN_QUESTIONS = 4
+# A wrong answer faster than this fraction of expected time looks like a rushed guess rather
+# than a deliberate, diagnostic mistake - its ability-decrease step is dampened by this factor
+# instead of amplified, so a lucky/unlucky guess doesn't swing the estimate as hard.
+GUESS_TIME_RATIO_THRESHOLD = 0.3
+GUESS_DAMPING_FACTOR = 0.5
+
+# Extra "effective coverage" subtracted from weak concepts once past the retest warmup, so they
+# rank higher in breadth-first selection without categorically excluding other concepts.
+WEAK_RETEST_COVERAGE_BOOST = 2
+
+PROGRESSION_MIN_QUESTIONS = 3
 
 # NEET marking scheme
 NEET_CORRECT_MARKS = 4

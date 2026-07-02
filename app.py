@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("neet_adaptive")
 
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
+_STATIC_VERSION = str(int(datetime.now(timezone.utc).timestamp()))
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -39,7 +40,7 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 @app.get("/")
 def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {})
+    return templates.TemplateResponse(request, "index.html", {"static_version": _STATIC_VERSION})
 
 
 @app.get("/api/health")

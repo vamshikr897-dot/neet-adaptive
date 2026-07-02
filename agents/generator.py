@@ -1,10 +1,12 @@
 import json
 import logging
+import re
 
 import config
 from agents.ollama_client import call_structured
 from models.agent_io import ConceptSpec
 from models.question import QuestionDraftBatch, QuestionSchema
+from repositories import question_repo
 
 logger = logging.getLogger("neet_adaptive.generator")
 
@@ -86,6 +88,52 @@ FEW_SHOT_EXAMPLES: dict[str, dict] = {
             "solution_steps": "f=mu*N=0.25*4*10=10N; F_net=15-10=5N; a=F_net/m=5/4=1.25 m/s^2",
         },
     },
+    "Chemistry": {
+        "context": "NEET Chemistry / Haloalkanes and Haloarenes / SN1 and SN2 Reactions / question_type=exception / difficulty=3",
+        "draft": {
+            "bloom_level": 4,
+            "dok_level": 2,
+            "stem": "Which of the following statements about the SN2 mechanism is NOT correct?",
+            "options": {
+                "A": "It proceeds through a single concerted step with a transition state",
+                "B": "It results in inversion of configuration (Walden inversion) at the reacting carbon",
+                "C": "The rate of reaction depends on the concentration of both the substrate and the nucleophile",
+                "D": "It is favoured by bulky substrates due to reduced steric hindrance at the transition state",
+            },
+            "correct_option": "D",
+            "distractor_rationale": [
+                {"option_key": "A", "is_correct": False, "misconception_tag": "correct_fact", "explanation": "True; SN2 is a single-step concerted mechanism, so a student picking this misread the NOT-correct framing."},
+                {"option_key": "B", "is_correct": False, "misconception_tag": "correct_fact", "explanation": "True; backside nucleophilic attack inverts the stereocentre, the hallmark of SN2."},
+                {"option_key": "C", "is_correct": False, "misconception_tag": "correct_fact", "explanation": "True; SN2 is bimolecular, rate = k[substrate][nucleophile]."},
+                {"option_key": "D", "is_correct": True, "misconception_tag": "bulky_substrate_sn2_confusion", "explanation": "Bulky substrates HINDER SN2 by blocking backside attack, favouring SN1 instead — this statement reverses the real relationship, making it the correct answer to a NOT-correct question."},
+            ],
+            "pyq_similarity_note": "Matches the recurring NEET pattern of SN1-vs-SN2 mechanism comparison questions in Haloalkanes & Haloarenes.",
+            "solution_steps": "",
+        },
+    },
+    "Botany": {
+        "context": "NEET Botany / Biological Classification / Five Kingdom Classification (Monera, Protista, Fungi) / question_type=exception / difficulty=2",
+        "draft": {
+            "bloom_level": 4,
+            "dok_level": 2,
+            "stem": "Which of the following statements about the kingdom Monera is NOT correct?",
+            "options": {
+                "A": "Monerans lack a well-defined nucleus and membrane-bound organelles",
+                "B": "Cell walls of most bacteria, where present, contain peptidoglycan",
+                "C": "All members of kingdom Monera are heterotrophic",
+                "D": "Reproduction in Monera is primarily asexual, via binary fission",
+            },
+            "correct_option": "C",
+            "distractor_rationale": [
+                {"option_key": "A", "is_correct": False, "misconception_tag": "correct_fact", "explanation": "True; the absence of a defined nucleus is the defining prokaryotic feature of Monera."},
+                {"option_key": "B", "is_correct": False, "misconception_tag": "correct_fact", "explanation": "True; peptidoglycan (murein) is the standard bacterial cell wall component taught in NCERT."},
+                {"option_key": "C", "is_correct": True, "misconception_tag": "monera_all_heterotrophic_confusion", "explanation": "False - Monera includes autotrophic forms too, such as photosynthetic cyanobacteria and chemosynthetic bacteria, so not all members are heterotrophic - this makes it the correct answer to a NOT-correct question."},
+                {"option_key": "D", "is_correct": False, "misconception_tag": "correct_fact", "explanation": "True; binary fission is the primary mode of reproduction in Monera."},
+            ],
+            "pyq_similarity_note": "Matches the recurring NEET pattern of exception-style questions on kingdom-level characteristics in Five Kingdom Classification.",
+            "solution_steps": "",
+        },
+    },
 }
 
 
@@ -146,6 +194,13 @@ For diagram questions, here is an additional example showing the diagram_svg fie
 Now write NEW, ORIGINAL questions for the requested concept and difficulty/type targets.
 Difficulty scale: 1=easy direct recall, 2=easy-medium, 3=medium (typical NEET level), 4=hard, 5=very hard.
 
+IMPORTANT - numeric diversity: when this request (or the "already used" list below) includes more than one
+numerical or calculation-based multi_concept question for the SAME concept, each one MUST use genuinely
+different concrete values (different masses, forces, concentrations, currents, distances, etc.) and MUST NOT
+share the same final numeric answer as another question on this concept. Do not reuse a scenario's numbers
+with only the flavor text changed - a student who has seen one should still have to redo the calculation for
+another, not recognize it from the numbers alone.
+
 Bloom's Taxonomy cognitive level (bloom_level, integer 1-5):
   1=Remember (direct recall of a fact, definition, or formula)
   2=Understand (explain, classify, or paraphrase a concept)
@@ -164,16 +219,30 @@ Return ONLY a JSON object with a "questions" array - one entry per requested tar
 these content fields: bloom_level, dok_level, stem, options, correct_option, distractor_rationale, pyq_similarity_note, solution_steps, diagram_svg."""
 
 
-def _build_user_prompt(chapter: str, concept: ConceptSpec, difficulty_targets: list[int], question_types: list[str]) -> str:
+def _build_user_prompt(
+    chapter: str,
+    concept: ConceptSpec,
+    difficulty_targets: list[int],
+    question_types: list[str],
+    existing_stems: list[str] | None = None,
+) -> str:
     targets = ", ".join(
         f"(difficulty={d}, question_type={t})" for d, t in zip(difficulty_targets, question_types)
     )
-    return (
+    prompt = (
         f"Chapter: {chapter}\n"
         f"Concept: {concept.name} (NEET PYQ importance weight: {concept.pyq_weight}/5.0)\n"
         f"Generate exactly {len(difficulty_targets)} questions, all on this concept, with these "
         f"(difficulty, question_type) targets in order: {targets}"
     )
+    if existing_stems:
+        already_used = "\n".join(f"- {s}" for s in existing_stems)
+        prompt += (
+            "\n\nQuestions already generated for this concept earlier in this batch run - do not repeat "
+            "their scenario, wording, or (for numerical questions) their numbers/final answer:\n"
+            f"{already_used}"
+        )
+    return prompt
 
 
 def _is_near_duplicate(stem: str, existing_stems: list[str]) -> bool:
@@ -188,6 +257,24 @@ def _is_near_duplicate(stem: str, existing_stems: list[str]) -> bool:
     return False
 
 
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _numeric_signature(stem: str) -> tuple[str, ...]:
+    return tuple(sorted(_NUMBER_RE.findall(stem))[:6])
+
+
+def _has_numeric_collision(stem: str, existing_signatures: list[tuple[str, ...]]) -> bool:
+    """Two numerical questions sharing the same set of numbers are effectively the same problem
+    with the flavor text changed - a student who's seen one would recognize the other by the
+    numbers alone. Only meaningful once a stem has at least 2 numbers in it."""
+    sig = _numeric_signature(stem)
+    return len(sig) >= 2 and sig in existing_signatures
+
+
+_NUMERIC_TYPES = ("numerical", "multi_concept")
+
+
 def generate_batch(
     subject: str,
     chapter: str,
@@ -195,20 +282,33 @@ def generate_batch(
     difficulty_targets: list[int],
     question_types: list[str],
     existing_stems: list[str] | None = None,
+    _retries_left: int = 2,
 ) -> list[QuestionSchema]:
-    existing_stems = existing_stems or []
+    existing_stems = existing_stems if existing_stems is not None else []
+    existing_signatures = [_numeric_signature(s) for s in existing_stems]
     system_prompt = _build_system_prompt(subject)
-    user_prompt = _build_user_prompt(chapter, concept, difficulty_targets, question_types)
+    user_prompt = _build_user_prompt(chapter, concept, difficulty_targets, question_types, existing_stems)
 
     draft_batch = call_structured(system_prompt, user_prompt, QuestionDraftBatch)
 
     valid: list[QuestionSchema] = []
+    failed_difficulties: list[int] = []
+    failed_types: list[str] = []
     for draft, difficulty, qtype in zip(draft_batch.questions, difficulty_targets, question_types):
         if _is_near_duplicate(draft.stem, existing_stems):
             logger.warning("Generator produced a near-duplicate stem, discarding: %.80s", draft.stem)
+            failed_difficulties.append(difficulty)
+            failed_types.append(qtype)
+            continue
+        if qtype in _NUMERIC_TYPES and _has_numeric_collision(draft.stem, existing_signatures):
+            logger.warning("Generator produced a numeric-signature collision, discarding: %.80s", draft.stem)
+            failed_difficulties.append(difficulty)
+            failed_types.append(qtype)
             continue
         if qtype == "diagram" and not draft.diagram_svg:
             logger.warning("Generator produced diagram question with no SVG, discarding: %.80s", draft.stem)
+            failed_difficulties.append(difficulty)
+            failed_types.append(qtype)
             continue
         try:
             q = QuestionSchema(
@@ -229,16 +329,31 @@ def generate_batch(
             )
         except Exception:
             logger.exception("Failed to assemble QuestionSchema from draft, discarding")
+            failed_difficulties.append(difficulty)
+            failed_types.append(qtype)
             continue
         valid.append(q)
         existing_stems.append(q.stem)
+        existing_signatures.append(_numeric_signature(q.stem))
+
+    if failed_difficulties and _retries_left > 0:
+        # Self-heal: regenerate just the discarded slots instead of silently under-delivering -
+        # this is what previously left concepts permanently short of their pool target, requiring
+        # repeated manual backfill runs to notice and top up.
+        retry_results = generate_batch(
+            subject, chapter, concept, failed_difficulties, failed_types,
+            existing_stems=existing_stems, _retries_left=_retries_left - 1,
+        )
+        valid.extend(retry_results)
+
     return valid
 
 
 def generate_single_question(
     subject: str, chapter: str, concept: ConceptSpec, difficulty: int, question_type: str
 ) -> QuestionSchema:
-    results = generate_batch(subject, chapter, concept, [difficulty], [question_type])
+    existing_stems = question_repo.get_stems_for_concept(subject, chapter, concept.name)
+    results = generate_batch(subject, chapter, concept, [difficulty], [question_type], existing_stems=existing_stems)
     if not results:
         raise ValueError(f"Generator failed to produce a valid question for {concept.name}")
     return results[0]
@@ -252,9 +367,15 @@ def generate_pool(
 ) -> list[QuestionSchema]:
     questions_per_concept = questions_per_concept or config.POOL_QUESTIONS_PER_CONCEPT
     all_questions: list[QuestionSchema] = []
-    all_stems: list[str] = []
 
     for concept in concepts:
+        # Scoped per-concept (not shared across the whole pool run) so the dedup check and the
+        # "already used" prompt context stay relevant - a Photosynthesis stem is noise when
+        # generating Circular Motion questions. Seeded from the DB (not just this run's own
+        # output) so duplicate detection also catches collisions with questions from earlier,
+        # separate generation runs for the same concept - the root cause of the cross-batch
+        # duplicates found and cleaned up earlier this session.
+        concept_stems: list[str] = question_repo.get_stems_for_concept(subject, chapter, concept.name)
         difficulty_targets = [_DIFFICULTY_CYCLE[i % len(_DIFFICULTY_CYCLE)] for i in range(questions_per_concept)]
         question_types = [_TYPE_CYCLE[i % len(_TYPE_CYCLE)] for i in range(questions_per_concept)]
 
@@ -264,7 +385,7 @@ def generate_pool(
             batch_d, batch_t = remaining_d[:n], remaining_t[:n]
             remaining_d, remaining_t = remaining_d[n:], remaining_t[n:]
             try:
-                batch = generate_batch(subject, chapter, concept, batch_d, batch_t, existing_stems=all_stems)
+                batch = generate_batch(subject, chapter, concept, batch_d, batch_t, existing_stems=concept_stems)
                 all_questions.extend(batch)
             except Exception:
                 logger.exception("Failed to generate batch for concept %s, skipping batch", concept.name)

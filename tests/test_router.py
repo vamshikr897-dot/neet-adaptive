@@ -67,10 +67,19 @@ def test_update_ability_slow_correct_dampens_step_below_baseline():
     assert slow < baseline
 
 
-def test_update_ability_fast_wrong_amplifies_downward_step():
+def test_update_ability_moderately_fast_wrong_amplifies_downward_step():
+    # Faster than expected but still above the rushed-guess threshold -> normal amplification.
     baseline = update_ability(2.5, difficulty=2, correct=False)
-    fast = update_ability(2.5, difficulty=2, correct=False, question_type="recall", time_taken_seconds=5)
+    fast = update_ability(2.5, difficulty=2, correct=False, question_type="recall", time_taken_seconds=20)
     assert fast < baseline
+
+
+def test_update_ability_very_fast_wrong_dampens_as_rushed_guess():
+    # Well below the rushed-guess ratio threshold -> dampened, not amplified, since a very fast
+    # wrong answer looks like a guess rather than a deliberate, diagnostic mistake.
+    baseline = update_ability(2.5, difficulty=2, correct=False)
+    guess = update_ability(2.5, difficulty=2, correct=False, question_type="recall", time_taken_seconds=5)
+    assert guess > baseline
 
 
 def test_update_ability_slow_wrong_dampens_downward_step():
@@ -116,7 +125,10 @@ def test_select_concept_all_wrong_does_not_retest_before_warmup():
 
 
 def test_select_concept_wrong_on_one_concept_only_retests_after_warmup():
-    # Past the warmup window, with A being the only weak concept -> A should be retested
+    # Past the warmup window, with A being the only weak (low-mastery) concept -> A gets a
+    # coverage boost that outranks B/C's real lower coverage. difficulty_history must be
+    # populated too since weak detection is now mastery-based (difficulty-weighted), not raw
+    # accuracy, and mastery is computed from difficulty_history, not failure_mode_tally alone.
     state = _base_state(
         current_question_index=4,
         concept_coverage={"A": 2, "B": 1, "C": 1},
@@ -125,9 +137,65 @@ def test_select_concept_wrong_on_one_concept_only_retests_after_warmup():
             "B": FailureModeTally(concept="B", correct_count=1, attempt_count=1),
             "C": FailureModeTally(concept="C", correct_count=1, attempt_count=1),
         },
+        difficulty_history=[
+            DifficultyHistoryEntry(
+                question_index=1, difficulty=2, concept="A", question_type="recall",
+                correct=False, time_taken_seconds=10,
+            ),
+            DifficultyHistoryEntry(
+                question_index=2, difficulty=2, concept="A", question_type="recall",
+                correct=False, time_taken_seconds=10,
+            ),
+            DifficultyHistoryEntry(
+                question_index=3, difficulty=2, concept="B", question_type="recall",
+                correct=True, time_taken_seconds=10,
+            ),
+            DifficultyHistoryEntry(
+                question_index=4, difficulty=2, concept="C", question_type="recall",
+                correct=True, time_taken_seconds=10,
+            ),
+        ],
     )
     spec = select_next_spec(state, CONCEPTS)
     assert spec.concept == "A"
+
+
+def test_select_concept_weak_boost_does_not_override_genuinely_uncovered_concept():
+    # A is weak (boost -2, but its raw coverage of 3 still leaves effective coverage 1 after the
+    # boost) while C has real coverage 0 - C must still win, since the boost is a soft preference
+    # among similar coverage, not a hard filter that can override a genuinely uncovered concept.
+    state = _base_state(
+        current_question_index=4,
+        concept_coverage={"A": 3, "B": 2, "C": 0},
+        failure_mode_tally={
+            "A": FailureModeTally(concept="A", correct_count=0, attempt_count=2, conceptual_gap=2),
+        },
+        difficulty_history=[
+            DifficultyHistoryEntry(
+                question_index=1, difficulty=2, concept="A", question_type="recall",
+                correct=False, time_taken_seconds=10,
+            ),
+            DifficultyHistoryEntry(
+                question_index=2, difficulty=2, concept="A", question_type="recall",
+                correct=False, time_taken_seconds=10,
+            ),
+        ],
+    )
+    spec = select_next_spec(state, CONCEPTS)
+    assert spec.concept == "C"
+
+
+def test_select_concept_breaks_true_ties_randomly():
+    # B and C have equal coverage AND equal pyq_weight (a genuine tie) with no weak concepts -
+    # across many trials, both should appear, not always the same one due to list-order bias.
+    tied_concepts = [
+        ConceptSpec(name="A", pyq_weight=4.0),
+        ConceptSpec(name="B", pyq_weight=3.0),
+        ConceptSpec(name="C", pyq_weight=3.0),
+    ]
+    state = _base_state(concept_coverage={"A": 5, "B": 1, "C": 1})
+    seen = {select_next_spec(state, tied_concepts).concept for _ in range(50)}
+    assert seen == {"B", "C"}
 
 
 def test_select_concept_respects_coverage_cap():

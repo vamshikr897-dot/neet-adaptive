@@ -6,10 +6,10 @@ AI-powered adaptive quiz platform for NEET exam preparation. Generates NEET-styl
 
 ## How it works
 
-1. When a session starts, the **Generator** agent calls Ollama to pre-generate a pool of NEET-style MCQs for the selected chapter and concepts — each question tagged with a Bloom's Taxonomy level (1–5) and Webb's DOK level (1–3) in addition to difficulty and question type.
-2. The **Router** selects the next question using an IRT-inspired ability estimate (1.0–5.0), targeting difficulty at the student's current level, prioritising weak concepts, and modulating the ability update by how the student's response time compared to an expected pace for that question's type/difficulty (fast + confident swings the estimate further; slow answers are treated as lower-confidence signal, in either direction).
+1. When a session starts, the **Generator** agent calls Ollama to pre-generate a pool of NEET-style MCQs for the selected chapter and concepts — each question tagged with a Bloom's Taxonomy level (1–5) and Webb's DOK level (1–3) in addition to difficulty and question type. Every draft is checked against stems already stored for that concept (across *all* past sessions, not just the current batch) and against a numeric-signature check for numerical questions (same numbers, different story still counts as a collision); a discarded slot is automatically regenerated rather than silently shrinking the batch.
+2. The **Router** selects the next question using an IRT-inspired ability estimate (1.0–5.0), targeting difficulty at the student's current level, softly prioritising concepts whose difficulty-weighted mastery is below the report's own "weak" threshold (so retesting boosts a weak concept's priority without excluding other concepts from the session), and modulating the ability update by how the student's response time compared to an expected pace for that question's type/difficulty. Fast + correct swings the estimate further; slow answers are treated as lower-confidence signal in either direction; a wrong answer much faster than expected is dampened rather than amplified, since it looks like a rushed guess rather than a genuine, diagnostic mistake.
 3. After each answer the **Evaluator** determines whether the answer was correct and — if wrong — tags the failure mode: `conceptual_gap`, `calculation_error`, or `exception_not_known`.
-4. After the session ends, the **Gap Analyser** deterministically computes a full performance report — NEET-style score (+4/−1/0), per-concept mastery %, Bloom/DOK cognitive-level breakdown, error-type analysis, time-efficiency and speed/accuracy tradeoff, recovery rate and difficulty progression, and a prioritised "fix these first" list weighted by real NEET PYQ frequency — then calls Ollama once to write the personalised prose narration on top of those already-finalized numbers.
+4. After the session ends, the **Gap Analyser** deterministically computes a full performance report — NEET-style score (+4/−1/0), per-concept mastery %, Bloom/DOK cognitive-level breakdown, error-type analysis, time-efficiency (including a rushed-guess count and a per-question-type time breakdown) and speed/accuracy tradeoff, recovery rate and difficulty progression, and a prioritised "fix these first" list weighted by real NEET PYQ frequency — then calls Ollama once to write the personalised prose on top of those already-finalized numbers: per-concept misconception notes for weak concepts, expertise notes for strong concepts (grounded in the student's actual answer-rationale tags either way), a short summary, and a concrete next-steps checklist.
 
 ---
 
@@ -17,10 +17,10 @@ AI-powered adaptive quiz platform for NEET exam preparation. Generates NEET-styl
 
 | Agent | Type | Role |
 |---|---|---|
-| Generator | LLM | Generates NEET-style MCQs with LaTeX formulas, inline SVG diagrams, and Bloom/DOK tags |
+| Generator | LLM | Generates NEET-style MCQs with LaTeX formulas, inline SVG diagrams, and Bloom/DOK tags; self-heals by regenerating any question discarded for being a duplicate (cross-session), a numeric-signature collision, or schema-invalid |
 | Evaluator | LLM + deterministic | Grades answers; tags failure mode for incorrect answers (fast-path, no LLM call, when the answer matches or times out) |
-| Router | Deterministic | Adaptive difficulty/concept/type selection based on ability estimate and response-time confidence |
-| Gap Analyser | Deterministic + LLM narration | Computes every report metric deterministically; LLM only writes prose on top, never alters a number |
+| Router | Deterministic | Adaptive difficulty/concept/type selection based on ability estimate and response-time confidence, with rushed-guess damping and weak-concept prioritization aligned with the report's own mastery formula |
+| Gap Analyser | Deterministic + LLM narration | Computes every report metric deterministically, including per-concept misconception/expertise notes and a next-steps checklist grounded in real answer data; LLM only writes prose on top, never alters a number |
 
 **Session state machine:**
 ```
@@ -89,7 +89,7 @@ All settings are environment variables. Copy `.env.example` to `.env` and edit a
 | `TAXONOMY_PATH` | `./data/taxonomy.json` | Chapter/concept taxonomy file |
 | `LLM_CALL_LOG_PATH` | `./data/llm_call_log.jsonl` | JSONL log of every LLM call (prompts + raw responses) |
 | `GENERATOR_BATCH_SIZE` | `3` | Questions generated per LLM call |
-| `POOL_QUESTIONS_PER_CONCEPT` | `4` | Questions pre-generated per concept per session |
+| `POOL_QUESTIONS_PER_CONCEPT` | `10` | Questions pre-generated per concept per session |
 | `QUESTIONS_PER_SESSION` | `10` | Target questions per session before gap analysis |
 
 A larger set of tunable thresholds (mastery verdict cutoffs, NEET marking scheme, time-efficiency heuristics, priority-concept weighting, etc.) lives as plain constants in `config.py` rather than environment variables, since they're report/scoring calibration rather than deployment config — see the "Report metric thresholds" section of that file.
@@ -118,7 +118,8 @@ neet-adaptive/
 ├── models/
 │   ├── question.py           # QuestionDraft, QuestionSchema, QuestionPublic (bloom_level, dok_level included)
 │   ├── report.py             # GapReport + sub-models: NeetScore, BloomDokBreakdown, ErrorAnalysis,
-│   │                          #   TimeEfficiency, RecoveryProgression, PriorityConcept, ConceptVerdict
+│   │                          #   TimeEfficiency (+ TimeByTypeEntry), RecoveryProgression,
+│   │                          #   PriorityConcept, StrengthConcept, ConceptVerdict
 │   ├── agent_io.py           # ConceptSpec and other agent I/O types
 │   └── session_state.py      # SessionState, DifficultyHistoryEntry, FailureModeTally
 │
@@ -127,7 +128,7 @@ neet-adaptive/
 │   └── states.py             # SessionStatus enum
 │
 ├── repositories/
-│   ├── question_repo.py      # Question bank CRUD
+│   ├── question_repo.py      # Question bank CRUD + get_stems_for_concept (cross-session duplicate detection)
 │   ├── session_repo.py       # Session persistence
 │   ├── report_repo.py        # Gap report storage (insights_json holds the extended report fields)
 │   └── taxonomy_repo.py      # Chapter/concept queries
@@ -148,7 +149,9 @@ neet-adaptive/
 │   └── taxonomy.json         # Full NEET syllabus: Physics / Chemistry / Botany / Zoology, Grades 11-12
 │
 └── tests/
-    └── test_router.py        # Unit tests for routing + time-aware ability update logic
+    ├── test_router.py        # Routing, time-aware ability updates, rushed-guess damping, tie-breaking
+    ├── test_generator.py     # Duplicate/numeric-collision detection + retry-on-discard behavior
+    └── test_gap_analyser.py  # Report metric computation: priority/strength concepts, time-by-type, etc.
 ```
 
 ---
@@ -172,7 +175,9 @@ neet-adaptive/
 ## Features
 
 - **Adaptive difficulty** — ability estimate updated after each answer using asymmetric IRT-inspired steps (±0.5 when answer matches expectation, ±0.25 otherwise), further scaled ±30% by response-time confidence, clamped to [1, 5]
-- **Weakness detection** — router re-tests concepts where failure rate is high, weighted by PYQ importance
+- **Weakness detection** — router softly re-prioritises concepts flagged weak by the same difficulty-weighted mastery formula the report uses, weighted by PYQ importance, without excluding other concepts from the session
+- **Rushed-guess detection** — a wrong answer given much faster than the expected pace is treated as a likely guess rather than a genuine mistake, both in how it affects the live ability estimate and as a surfaced count in the end-of-session report
+- **Duplicate-free question generation** — every new question is checked against stems already stored for that concept across *all* past sessions (not just the current batch) and against a numeric-signature collision check for numerical problems; discarded slots are automatically regenerated
 - **5 question types** — recall, exception (NOT-correct), numerical, diagram, multi_concept
 - **Bloom's Taxonomy + Webb's DOK tagging** — every question carries a cognitive-level (1–5) and depth-of-knowledge (1–3) tag, assigned by the Generator and back-filled deterministically for legacy questions
 - **Full NEET syllabus taxonomy** — 46 chapters / 150 concepts across Physics, Chemistry, Botany, and Zoology (Grades 11–12), calibrated against the current NTA rationalized syllabus
@@ -182,9 +187,11 @@ neet-adaptive/
 - **Concept mastery %** — difficulty-weighted accuracy per concept (getting harder questions right counts for more), with a low-confidence flag when a verdict is based on very few questions
 - **Cognitive-level breakdown** — accuracy by Bloom level and DOK level actually encountered in the session, to see whether performance holds up as cognitive demand increases
 - **Error analysis** — session-wide breakdown of failure modes (conceptual gap / calculation error / missed exception)
-- **Time efficiency** — actual vs. expected time per question, a hesitation index (correct answers that took much longer than expected), and a speed/accuracy tradeoff verdict
+- **Time efficiency** — actual vs. expected time per question, a hesitation index (correct answers that took much longer than expected), a rushed-guess count, a per-question-type average time breakdown, and a speed/accuracy tradeoff verdict
 - **Recovery & progression** — bounce-back rate after a wrong answer, and first-half vs. second-half accuracy/difficulty
-- **Priority concepts** — weak/needs-improvement concepts that also have high real-world NEET PYQ frequency, so students know what to fix first for maximum score impact
+- **Priority concepts** — weak/needs-improvement concepts that also have high real-world NEET PYQ frequency, each with an LLM-written misconception note grounded in the student's actual wrong-answer rationale tags, so students know what to fix first for maximum score impact
+- **Strength concepts** — the mirror image of priority concepts: strong concepts with an LLM-written expertise note grounded in the student's actual correct-answer rationale tags, so it's equally clear what's already working
+- **Next steps checklist** — a short, concrete list of LLM-written action items generated alongside the rest of the report narration
 - **Gap analysis report** — per-concept verdict (strong / needs_improvement / weak / not_assessed) with LLM-written personalised narrations, grounded in (and never allowed to contradict) the deterministic numbers above
 - **Idempotent report generation** — calling `POST /report` twice returns the same cached report without re-running the LLM
 
@@ -200,7 +207,7 @@ pytest tests/
 QUESTIONS_PER_SESSION=5 python app.py
 ```
 
-The test suite covers the router's ability update logic (including time-aware modulation), concept selection, question type rotation, and difficulty targeting.
+The test suite (42 tests across 3 files) covers: the router's ability update logic including time-aware modulation and rushed-guess damping, concept selection (weak-concept boosting, coverage caps, randomized tie-breaking), question type rotation, and difficulty targeting (`test_router.py`); generator duplicate and numeric-signature collision detection with retry-on-discard behavior (`test_generator.py`); and gap analyser report metric computation, including priority/strength concept extraction, rationale-note collection, and time-by-question-type breakdowns (`test_gap_analyser.py`).
 
 ---
 

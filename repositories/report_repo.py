@@ -8,7 +8,10 @@ from models.report import (
     GapReport,
     NeetScore,
     PriorityConcept,
+    QuestionHistoryPoint,
+    QuestionTypeBreakdownEntry,
     RecoveryProgression,
+    StrengthConcept,
     TimeEfficiency,
 )
 
@@ -17,10 +20,14 @@ def insert(report: GapReport) -> None:
     insights = {
         "neet_score": report.neet_score.model_dump(),
         "bloom_dok_breakdown": report.bloom_dok_breakdown.model_dump(),
+        "question_type_breakdown": [q.model_dump() for q in report.question_type_breakdown],
         "error_analysis": report.error_analysis.model_dump(),
         "time_efficiency": report.time_efficiency.model_dump(),
         "recovery_progression": report.recovery_progression.model_dump(),
         "priority_concepts": [p.model_dump() for p in report.priority_concepts],
+        "strength_concepts": [s.model_dump() for s in report.strength_concepts],
+        "question_history": [q.model_dump() for q in report.question_history],
+        "next_steps": report.next_steps,
     }
     conn = db.get_connection()
     try:
@@ -51,7 +58,7 @@ def get(session_id: str) -> GapReport | None:
     try:
         row = conn.execute(
             """
-            SELECT gr.*, s.chapter FROM gap_reports gr
+            SELECT gr.*, s.subject, s.chapter FROM gap_reports gr
             JOIN sessions s ON s.session_id = gr.session_id
             WHERE gr.session_id = ?
             """,
@@ -64,17 +71,24 @@ def get(session_id: str) -> GapReport | None:
             verdicts = [ConceptVerdict(**v) for v in json.loads(row["concept_verdicts_json"])]
             return GapReport(
                 session_id=row["session_id"],
+                subject=row["subject"],
                 chapter=row["chapter"],
                 overall_score=row["overall_score"],
                 ability_estimate_final=row["ability_estimate_final"],
                 concept_verdicts=verdicts,
                 neet_score=NeetScore(**insights["neet_score"]),
                 bloom_dok_breakdown=BloomDokBreakdown(**insights["bloom_dok_breakdown"]),
+                question_type_breakdown=[
+                    QuestionTypeBreakdownEntry(**q) for q in insights["question_type_breakdown"]
+                ],
                 error_analysis=ErrorAnalysis(**insights["error_analysis"]),
                 time_efficiency=TimeEfficiency(**insights["time_efficiency"]),
                 recovery_progression=RecoveryProgression(**insights["recovery_progression"]),
                 priority_concepts=[PriorityConcept(**p) for p in insights["priority_concepts"]],
+                strength_concepts=[StrengthConcept(**s) for s in insights["strength_concepts"]],
+                question_history=[QuestionHistoryPoint(**q) for q in insights["question_history"]],
                 summary=row["summary"],
+                next_steps=insights["next_steps"],
                 generated_at=row["generated_at"],
             )
         except (KeyError, TypeError, ValueError):

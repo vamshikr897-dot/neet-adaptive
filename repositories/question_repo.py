@@ -1,10 +1,24 @@
 import json
 import random
 import uuid
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 import db
 from models.question import QuestionSchema
+
+
+def _has_valid_diagram(row) -> bool:
+    if row["question_type"] != "diagram":
+        return True
+    svg = row["diagram_svg"]
+    if not svg:
+        return False
+    try:
+        ET.fromstring(svg)
+        return True
+    except ET.ParseError:
+        return False
 
 
 def _get_concept_id(conn, subject: str, chapter: str, concept: str) -> int | None:
@@ -18,6 +32,20 @@ def _get_concept_id(conn, subject: str, chapter: str, concept: str) -> int | Non
         (subject, chapter, concept),
     ).fetchone()
     return row["concept_id"] if row else None
+
+
+def get_stems_for_concept(subject: str, chapter: str, concept: str) -> list[str]:
+    """All stems already stored for a concept, regardless of source (pool/warmup/just-in-time)
+    or which generation run created them - used to seed duplicate detection across runs."""
+    conn = db.get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT stem FROM question_bank WHERE subject = ? AND chapter = ? AND concept = ?",
+            (subject, chapter, concept),
+        ).fetchall()
+        return [row["stem"] for row in rows]
+    finally:
+        conn.close()
 
 
 def insert_questions(questions: list[QuestionSchema], source: str = "pool") -> list[str]:
@@ -113,13 +141,13 @@ def find_matching(
         if question_type:
             query += " AND question_type = ?"
             params.append(question_type)
-        # Never serve a diagram question that has no SVG content
-        query += " AND NOT (question_type = 'diagram' AND (diagram_svg IS NULL OR diagram_svg = ''))"
         if exclude_ids:
             query += f" AND question_id NOT IN ({','.join('?' for _ in exclude_ids)})"
             params.extend(exclude_ids)
 
         rows = conn.execute(query, params).fetchall()
+        # Never serve a diagram question with missing or unparseable SVG content
+        rows = [r for r in rows if _has_valid_diagram(r)]
         if not rows:
             return None
 

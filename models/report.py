@@ -38,6 +38,13 @@ class BloomDokBreakdown(BaseModel):
     dok: list[LevelBreakdownEntry]
 
 
+class QuestionTypeBreakdownEntry(BaseModel):
+    question_type: str
+    attempted: int
+    correct: int
+    accuracy_pct: float
+
+
 class ErrorAnalysis(BaseModel):
     conceptual_gap_count: int
     calculation_error_count: int
@@ -48,11 +55,19 @@ class ErrorAnalysis(BaseModel):
     exception_not_known_pct: float | None
 
 
+class TimeByTypeEntry(BaseModel):
+    question_type: str
+    avg_actual_seconds: float
+    avg_expected_seconds: float
+    count: int
+
+
 class TimeEfficiency(BaseModel):
     avg_actual_seconds: float | None
     avg_expected_seconds: float | None
     efficiency_ratio: float | None  # None when questions_attempted == 0
     hesitation_index: float | None
+    rushed_guess_count: int = 0  # wrong answers well faster than expected - likely guesses
     faster_bucket_accuracy_pct: float | None
     slower_bucket_accuracy_pct: float | None
     faster_bucket_count: int
@@ -64,6 +79,7 @@ class TimeEfficiency(BaseModel):
     heuristic_note: str = (
         "Expected-time baselines are an approximation, not derived from official NEET timing data."
     )
+    by_question_type: list[TimeByTypeEntry] = []
 
 
 class RecoveryProgression(BaseModel):
@@ -82,19 +98,44 @@ class PriorityConcept(BaseModel):
     verdict: Literal["weak", "needs_improvement"]
     pyq_weight: float
     mastery_pct: float | None
+    conceptual_gap: int = 0
+    calculation_error: int = 0
+    exception_not_known: int = 0
+    misconception_note: str = ""
+
+
+class StrengthConcept(BaseModel):
+    concept: str
+    pyq_weight: float
+    mastery_pct: float | None
+    expertise_note: str = ""
+
+
+class QuestionHistoryPoint(BaseModel):
+    question_index: int
+    time_taken_seconds: float
+    correct: bool
+    difficulty: int
+    concept: str
+    attempted: bool  # False when selected_option was None (timeout/skip)
 
 
 class GapReport(BaseModel):
     session_id: str
+    subject: str
     chapter: str
     overall_score: int
     ability_estimate_final: float
     concept_verdicts: list[ConceptVerdict]
     neet_score: NeetScore
     bloom_dok_breakdown: BloomDokBreakdown
+    question_type_breakdown: list[QuestionTypeBreakdownEntry]
     error_analysis: ErrorAnalysis
     time_efficiency: TimeEfficiency
     recovery_progression: RecoveryProgression
     priority_concepts: list[PriorityConcept]
+    strength_concepts: list[StrengthConcept]
+    question_history: list[QuestionHistoryPoint]
     summary: str
+    next_steps: list[str]
     generated_at: str

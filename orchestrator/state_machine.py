@@ -208,6 +208,8 @@ def submit_answer(session_id: str, selected_option: str | None, time_taken_secon
             selected_option=selected_option,
             bloom_level=question["bloom_level"],
             dok_level=question["dok_level"],
+            rationale_tag=result.rationale_tag,
+            rationale_explanation=result.rationale_explanation,
         )
     )
     state.ability_estimate = router.update_ability(

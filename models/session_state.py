@@ -11,6 +11,8 @@ class DifficultyHistoryEntry(BaseModel):
     selected_option: str | None = None  # None means unattempted/timeout
     bloom_level: int = 0
     dok_level: int = 0
+    rationale_tag: str | None = None  # tagged rationale of the selected option, None if unattempted
+    rationale_explanation: str | None = None  # full rationale text - "correct" tag alone isn't descriptive
 
 
 class FailureModeTally(BaseModel):

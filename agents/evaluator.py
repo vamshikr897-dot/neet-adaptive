@@ -51,30 +51,39 @@ def _build_user_prompt(question: dict, selected_option: str) -> str:
 def evaluate_answer(question: dict, selected_option: str | None) -> EvaluatorResult:
     correct = selected_option is not None and selected_option == question["correct_option"]
 
-    if correct:
-        return EvaluatorResult(correct=True, failure_mode="none", reasoning="")
-
     if selected_option is None:
         return EvaluatorResult(
-            correct=False, failure_mode="conceptual_gap", reasoning="No answer was submitted in time."
+            correct=False, failure_mode="conceptual_gap", reasoning="No answer was submitted in time.",
+            rationale_tag=None,
         )
 
+    # Every option (including the correct one) carries a tagged rationale explaining why it's
+    # right/wrong - looked up once here so both the correct and incorrect paths can attach it.
     rationale = next(
         (r for r in question["distractor_rationale"] if r["option_key"] == selected_option), None
     )
-    misconception_tag = rationale["misconception_tag"] if rationale else "unknown"
+    rationale_tag = rationale["misconception_tag"] if rationale else None
+    rationale_explanation = rationale["explanation"] if rationale else None
+
+    if correct:
+        return EvaluatorResult(
+            correct=True, failure_mode="none", reasoning="",
+            rationale_tag=rationale_tag, rationale_explanation=rationale_explanation,
+        )
 
     try:
         llm_result = call_structured(
             _build_system_prompt(), _build_user_prompt(question, selected_option), EvaluatorLLMResult
         )
         return EvaluatorResult(
-            correct=False, failure_mode=llm_result.failure_mode, reasoning=llm_result.reasoning
+            correct=False, failure_mode=llm_result.failure_mode, reasoning=llm_result.reasoning,
+            rationale_tag=rationale_tag, rationale_explanation=rationale_explanation,
         )
     except AgentGenerationError:
         logger.warning("Evaluator LLM call failed twice, using deterministic fallback")
-        fallback_mode = _fallback_failure_mode(misconception_tag)
-        fallback_reasoning = (
-            rationale["explanation"] if rationale else "Incorrect option selected."
+        fallback_mode = _fallback_failure_mode(rationale_tag or "unknown")
+        fallback_reasoning = rationale_explanation or "Incorrect option selected."
+        return EvaluatorResult(
+            correct=False, failure_mode=fallback_mode, reasoning=fallback_reasoning,
+            rationale_tag=rationale_tag, rationale_explanation=rationale_explanation,
         )
-        return EvaluatorResult(correct=False, failure_mode=fallback_mode, reasoning=fallback_reasoning)

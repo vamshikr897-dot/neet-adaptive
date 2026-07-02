@@ -3,46 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEET Adaptive Assessment</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>NEET Adaptive Assessments</title>
+    <link rel="stylesheet" href="/static/style.css?v={{ static_version }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <header class="app-header">
-        <h1>NEET Adaptive Assessment</h1>
-        <p class="subtitle">Practice that adapts to you</p>
+        <h1>NEET Adaptive Assessments</h1>
+        <p class="subtitle">Built to find your concept gaps before the exam does.</p>
     </header>
 
     <main id="app">
         <section id="picker-screen" class="screen">
-            <div class="picker-hero">
-                <h2>Ready to practise for NEET?</h2>
-                <p>Pick a chapter and start an adaptive quiz. Difficulty adjusts to your ability in real time.</p>
-            </div>
+            <div class="picker-selectors">
+                <div class="grade-toggle-group">
+                    <span class="toggle-label">Grade</span>
+                    <div class="grade-toggle" id="grade-toggle">
+                        <button class="toggle-btn active" data-grade="11">Grade 11</button>
+                        <button class="toggle-btn" data-grade="12">Grade 12</button>
+                    </div>
+                </div>
 
-            <div class="grade-toggle-group">
-                <span class="toggle-label">Grade</span>
-                <div class="grade-toggle" id="grade-toggle">
-                    <button class="toggle-btn active" data-grade="11">Grade 11</button>
-                    <button class="toggle-btn" data-grade="12">Grade 12</button>
+                <div class="subject-select-group">
+                    <span class="toggle-label">Subject</span>
+                    <select id="subject-select"></select>
                 </div>
             </div>
 
             <div id="chapter-list" class="chapter-list"></div>
 
-            <p class="concept-hint hidden" id="concept-hint">
-                All concepts included by default — tap any concept chip to deselect it.
-            </p>
-
-            <button id="start-btn" class="primary-btn" disabled>Start Assessment</button>
+            <div class="picker-cta-bar">
+                <button id="start-btn" class="primary-btn" disabled>Start Assessment</button>
+            </div>
         </section>
 
         <section id="quiz-screen" class="screen hidden">
+            <div class="quiz-session-meta" id="quiz-session-meta"></div>
             <div class="quiz-progress">
                 <span id="question-counter"></span>
-                <div style="display:flex;align-items:center;gap:12px;">
+                <div class="quiz-progress-controls">
                     <span id="question-timer"></span>
                     <button id="next-btn-top" class="next-btn-top hidden">Next &#8594;</button>
                     <button id="reset-btn" class="reset-btn" title="Start Over">&#8617; Start Over</button>
@@ -56,7 +58,7 @@
         </section>
     </main>
 
-    <script src="/static/api.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/api.js?v={{ static_version }}"></script>
+    <script src="/static/app.js?v={{ static_version }}"></script>
 </body>
 </html>

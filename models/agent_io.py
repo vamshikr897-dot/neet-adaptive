@@ -33,13 +33,18 @@ class EvaluatorResult(BaseModel):
     correct: bool
     failure_mode: Literal["conceptual_gap", "calculation_error", "exception_not_known", "none"]
     reasoning: str
+    rationale_tag: str | None = None
+    rationale_explanation: str | None = None
 
 
 class ConceptNarration(BaseModel):
     concept: str
     reasoning: str
+    misconception_note: str = ""  # only for priority (weak/needs_improvement, high PYQ) concepts
+    expertise_note: str = ""  # only for strength concepts
 
 
 class GapAnalyserLLMResult(BaseModel):
     concept_narrations: list[ConceptNarration]
     summary: str
+    next_steps: list[str]

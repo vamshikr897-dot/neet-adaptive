@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 import config
+from agents.generator import _TYPE_CYCLE
 from agents.ollama_client import AgentGenerationError, call_structured
 from agents.time_model import expected_time_seconds
 from models.agent_io import ConceptSpec, GapAnalyserLLMResult
@@ -13,7 +14,11 @@ from models.report import (
     LevelBreakdownEntry,
     NeetScore,
     PriorityConcept,
+    QuestionHistoryPoint,
+    QuestionTypeBreakdownEntry,
     RecoveryProgression,
+    StrengthConcept,
+    TimeByTypeEntry,
     TimeEfficiency,
 )
 from models.session_state import DifficultyHistoryEntry, FailureModeTally, SessionState
@@ -78,6 +83,8 @@ def _compute_neet_score(history: list[DifficultyHistoryEntry]) -> NeetScore:
 def _level_breakdown(history: list[DifficultyHistoryEntry], level_attr: str) -> list[LevelBreakdownEntry]:
     groups: dict[int, list[DifficultyHistoryEntry]] = {}
     for e in history:
+        if e.selected_option is None:  # skipped/timed-out - excluded, matches _compute_neet_score()
+            continue
         level = getattr(e, level_attr)
         if level == 0:  # legacy/unbackfilled - excluded rather than shown as a fake "Level 0"
             continue
@@ -100,6 +107,27 @@ def _compute_bloom_dok_breakdown(history: list[DifficultyHistoryEntry]) -> Bloom
         bloom=_level_breakdown(history, "bloom_level"),
         dok=_level_breakdown(history, "dok_level"),
     )
+
+
+def _compute_question_type_breakdown(history: list[DifficultyHistoryEntry]) -> list[QuestionTypeBreakdownEntry]:
+    groups: dict[str, list[DifficultyHistoryEntry]] = {}
+    for e in history:
+        if e.selected_option is None:  # skipped/timed-out - excluded, matches _level_breakdown()
+            continue
+        groups.setdefault(e.question_type, []).append(e)
+
+    entries = []
+    for qtype in _TYPE_CYCLE:  # canonical generation order, not alphabetical
+        items = groups.get(qtype)
+        if not items:
+            continue
+        correct = sum(1 for i in items if i.correct)
+        entries.append(
+            QuestionTypeBreakdownEntry(
+                question_type=qtype, attempted=len(items), correct=correct, accuracy_pct=100.0 * correct / len(items)
+            )
+        )
+    return entries
 
 
 def _compute_error_analysis(failure_mode_tally: dict[str, FailureModeTally]) -> ErrorAnalysis:
@@ -158,6 +186,9 @@ def _compute_time_efficiency(history: list[DifficultyHistoryEntry]) -> TimeEffic
     hesitation_count = sum(
         1 for e, r in zip(attempted, ratios) if e.correct and r > config.HESITATION_TIME_RATIO_THRESHOLD
     )
+    rushed_guess_count = sum(
+        1 for e, r in zip(attempted, ratios) if not e.correct and r < config.GUESS_TIME_RATIO_THRESHOLD
+    )
 
     def bucket_accuracy(bucket: list[DifficultyHistoryEntry]) -> float | None:
         return (100.0 * sum(1 for e in bucket if e.correct) / len(bucket)) if bucket else None
@@ -179,6 +210,7 @@ def _compute_time_efficiency(history: list[DifficultyHistoryEntry]) -> TimeEffic
         avg_expected_seconds=sum(expected_times) / len(expected_times),
         efficiency_ratio=sum(capped_ratios) / len(capped_ratios),
         hesitation_index=100.0 * hesitation_count / len(attempted),
+        rushed_guess_count=rushed_guess_count,
         faster_bucket_accuracy_pct=faster_acc,
         slower_bucket_accuracy_pct=slower_acc,
         faster_bucket_count=len(faster),
@@ -232,16 +264,82 @@ def _compute_recovery_progression(history: list[DifficultyHistoryEntry]) -> Reco
     )
 
 
-def _compute_priority_concepts(verdicts: list[ConceptVerdict]) -> list[PriorityConcept]:
-    priority = [
-        PriorityConcept(
-            concept=v.concept, verdict=v.verdict, pyq_weight=v.pyq_weight, mastery_pct=v.mastery_pct
+def _compute_priority_concepts(
+    verdicts: list[ConceptVerdict], failure_mode_tally: dict[str, FailureModeTally]
+) -> list[PriorityConcept]:
+    priority = []
+    for v in verdicts:
+        if v.verdict not in ("weak", "needs_improvement") or v.pyq_weight < config.PRIORITY_CONCEPT_PYQ_WEIGHT_MIN:
+            continue
+        tally = failure_mode_tally.get(v.concept)
+        priority.append(
+            PriorityConcept(
+                concept=v.concept, verdict=v.verdict, pyq_weight=v.pyq_weight, mastery_pct=v.mastery_pct,
+                conceptual_gap=tally.conceptual_gap if tally else 0,
+                calculation_error=tally.calculation_error if tally else 0,
+                exception_not_known=tally.exception_not_known if tally else 0,
+            )
         )
-        for v in verdicts
-        if v.verdict in ("weak", "needs_improvement") and v.pyq_weight >= config.PRIORITY_CONCEPT_PYQ_WEIGHT_MIN
-    ]
     priority.sort(key=lambda p: p.pyq_weight, reverse=True)
     return priority
+
+
+def _compute_strength_concepts(verdicts: list[ConceptVerdict]) -> list[StrengthConcept]:
+    strengths = [
+        StrengthConcept(concept=v.concept, pyq_weight=v.pyq_weight, mastery_pct=v.mastery_pct)
+        for v in verdicts
+        if v.verdict == "strong"
+    ]
+    strengths.sort(key=lambda s: s.pyq_weight, reverse=True)
+    return strengths
+
+
+def _collect_rationale_notes(history: list[DifficultyHistoryEntry], concept: str, want_correct: bool) -> list[str]:
+    """Rationale explanations (not just tags - a correct answer's tag is always the generic
+    string "correct", so the explanation prose is what actually describes the skill shown)."""
+    return [
+        e.rationale_explanation
+        for e in history
+        if e.concept == concept and e.correct == want_correct and e.rationale_explanation
+    ]
+
+
+def _compute_time_by_question_type(history: list[DifficultyHistoryEntry]) -> list[TimeByTypeEntry]:
+    attempted = [e for e in history if e.selected_option is not None]
+    groups: dict[str, list[DifficultyHistoryEntry]] = {}
+    for e in attempted:
+        groups.setdefault(e.question_type, []).append(e)
+
+    entries = []
+    for qtype in _TYPE_CYCLE:
+        items = groups.get(qtype)
+        if not items:
+            continue
+        expected_times = [expected_time_seconds(qtype, e.difficulty) for e in items]
+        entries.append(
+            TimeByTypeEntry(
+                question_type=qtype,
+                avg_actual_seconds=sum(e.time_taken_seconds for e in items) / len(items),
+                avg_expected_seconds=sum(expected_times) / len(expected_times),
+                count=len(items),
+            )
+        )
+    return entries
+
+
+def _build_question_history(history: list[DifficultyHistoryEntry]) -> list[QuestionHistoryPoint]:
+    ordered = sorted(history, key=lambda e: e.question_index)
+    return [
+        QuestionHistoryPoint(
+            question_index=e.question_index,
+            time_taken_seconds=e.time_taken_seconds,
+            correct=e.correct,
+            difficulty=e.difficulty,
+            concept=e.concept,
+            attempted=e.selected_option is not None,
+        )
+        for e in ordered
+    ]
 
 
 def _build_system_prompt() -> str:
@@ -251,10 +349,22 @@ def _build_system_prompt() -> str:
         "failure mode, and every other computed statistic (NEET score, mastery percentages, error "
         "breakdown, time efficiency, recovery rate, etc.) have already been finalized from the data — "
         "you must NOT change, recompute, or contradict any of them. Your only job is to write:\n"
-        "1. A short (1-2 sentence) reasoning for each concept, explaining the verdict in plain "
-        "language that a student can act on.\n"
-        "2. A 2-4 sentence overall summary highlighting the student's top strength, biggest gap, "
-        "and the single most important next step.\n"
+        "1. For EVERY concept, one concept_narrations entry with a short (1-2 sentence) reasoning "
+        "explaining the verdict in plain language a student can act on.\n"
+        "2. For concepts marked [PRIORITY] below, also fill that SAME entry's misconception_note: read "
+        "its wrong-answer explanations and name the SPECIFIC recurring mistake, not a restatement of "
+        "the verdict. If the explanations don't share a clear thread, describe the most instructive "
+        "single mistake instead of forcing a pattern.\n"
+        "3. For concepts marked [STRENGTH] below, also fill that SAME entry's expertise_note: read its "
+        "correct-answer explanations and name the SPECIFIC skill/concept demonstrably mastered.\n"
+        "4. Leave misconception_note and expertise_note as empty strings \"\" for every other concept.\n"
+        "5. A 2-4 sentence overall summary highlighting the student's top strength, biggest gap, and "
+        "the single most important next step.\n"
+        "6. A next_steps list of 2-3 short, concrete, prioritized actions before the next attempt "
+        "(e.g. 'Redo numerical problems on Concept X' not 'study more').\n"
+        "Each concept_narrations entry MUST be a JSON object with exactly these 4 keys: concept, "
+        "reasoning, misconception_note, expertise_note - for example: "
+        '{"concept": "Circular Motion", "reasoning": "...", "misconception_note": "...", "expertise_note": ""}\n'
         "Be specific, warm, and actionable. Avoid generic filler."
     )
 
@@ -265,14 +375,29 @@ def _build_user_prompt(
     error_analysis: ErrorAnalysis,
     time_efficiency: TimeEfficiency,
     recovery_progression: RecoveryProgression,
+    priority_concepts: list[PriorityConcept],
+    strength_concepts: list[StrengthConcept],
+    history: list[DifficultyHistoryEntry],
 ) -> str:
-    lines = ["Concept performance data (verdicts are final — only write the reasoning/summary):"]
+    priority_names = {p.concept for p in priority_concepts}
+    strength_names = {s.concept for s in strength_concepts}
+
+    lines = ["Concept performance data (verdicts are final — only write the reasoning/notes):"]
     for v in verdicts:
         mastery_str = f"{v.mastery_pct:.0f}% mastery" if v.mastery_pct is not None else "not assessed"
-        lines.append(
+        line = (
             f"- {v.concept}: verdict={v.verdict}, dominant_failure={v.dominant_failure_mode}, "
             f"{v.correct}/{v.questions_asked} correct ({mastery_str})"
         )
+        if v.concept in priority_names:
+            notes = _collect_rationale_notes(history, v.concept, want_correct=False)
+            notes_str = " | ".join(notes) if notes else "no wrong-answer explanations available"
+            line += f" [PRIORITY - wrong-answer explanations: {notes_str}]"
+        if v.concept in strength_names:
+            notes = _collect_rationale_notes(history, v.concept, want_correct=True)
+            notes_str = " | ".join(notes) if notes else "no correct-answer explanations available"
+            line += f" [STRENGTH - correct-answer explanations: {notes_str}]"
+        lines.append(line)
 
     lines.append("\nSession-wide stats (final, do not alter):")
     score_line = f"NEET score: {neet_score.raw_score}/{neet_score.max_score_from_attempted}"
@@ -290,7 +415,10 @@ def _build_user_prompt(
     if recovery_progression.recovery_rate is not None:
         lines.append(f"Recovery rate after mistakes: {recovery_progression.recovery_rate:.0f}%")
 
-    lines.append("\nReturn concept_narrations (one per concept, in the same order) and a summary.")
+    lines.append(
+        "\nReturn concept_narrations (one object per concept above, in the same order, each with "
+        "concept/reasoning/misconception_note/expertise_note keys), a summary, and next_steps."
+    )
     return "\n".join(lines)
 
 
@@ -321,22 +449,40 @@ def analyse_session(state: SessionState, concepts: list[ConceptSpec]) -> GapRepo
     overall_score = sum(v.correct for v in verdicts)
     neet_score = _compute_neet_score(state.difficulty_history)
     bloom_dok_breakdown = _compute_bloom_dok_breakdown(state.difficulty_history)
+    question_type_breakdown = _compute_question_type_breakdown(state.difficulty_history)
     error_analysis = _compute_error_analysis(state.failure_mode_tally)
     time_efficiency = _compute_time_efficiency(state.difficulty_history)
+    time_efficiency.by_question_type = _compute_time_by_question_type(state.difficulty_history)
     recovery_progression = _compute_recovery_progression(state.difficulty_history)
-    priority_concepts = _compute_priority_concepts(verdicts)
+    priority_concepts = _compute_priority_concepts(verdicts, state.failure_mode_tally)
+    strength_concepts = _compute_strength_concepts(verdicts)
+    question_history = _build_question_history(state.difficulty_history)
 
     summary = ""
+    next_steps: list[str] = []
     try:
         llm_result = call_structured(
             _build_system_prompt(),
-            _build_user_prompt(verdicts, neet_score, error_analysis, time_efficiency, recovery_progression),
+            _build_user_prompt(
+                verdicts, neet_score, error_analysis, time_efficiency, recovery_progression,
+                priority_concepts, strength_concepts, state.difficulty_history,
+            ),
             GapAnalyserLLMResult,
         )
-        narration_map = {n.concept: n.reasoning for n in llm_result.concept_narrations}
+        narration_map = {n.concept: n for n in llm_result.concept_narrations}
         for v in verdicts:
-            v.reasoning = narration_map.get(v.concept, "")
+            entry = narration_map.get(v.concept)
+            v.reasoning = entry.reasoning if entry else ""
         summary = llm_result.summary
+        next_steps = llm_result.next_steps
+
+        for p in priority_concepts:
+            entry = narration_map.get(p.concept)
+            p.misconception_note = entry.misconception_note if entry else ""
+
+        for s in strength_concepts:
+            entry = narration_map.get(s.concept)
+            s.expertise_note = entry.expertise_note if entry else ""
     except AgentGenerationError:
         logger.warning("Gap analyser LLM call failed; using fallback narrations")
         for v in verdicts:
@@ -346,19 +492,27 @@ def analyse_session(state: SessionState, concepts: list[ConceptSpec]) -> GapRepo
             f"Dominant error type: {_dominant_error_type(error_analysis)}. "
             "Review the concept breakdown for details."
         )
+        next_steps = [
+            f"Review {p.concept} (weak, PYQ weight {p.pyq_weight:.1f})" for p in priority_concepts[:3]
+        ] or ["Review your concept breakdown below for areas to improve."]
 
     return GapReport(
         session_id=state.session_id,
+        subject=state.subject,
         chapter=state.chapter,
         overall_score=overall_score,
         ability_estimate_final=state.ability_estimate,
         concept_verdicts=verdicts,
         neet_score=neet_score,
         bloom_dok_breakdown=bloom_dok_breakdown,
+        question_type_breakdown=question_type_breakdown,
         error_analysis=error_analysis,
         time_efficiency=time_efficiency,
         recovery_progression=recovery_progression,
         priority_concepts=priority_concepts,
+        strength_concepts=strength_concepts,
+        question_history=question_history,
         summary=summary,
+        next_steps=next_steps,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
