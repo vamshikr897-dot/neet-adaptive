@@ -29,6 +29,8 @@ GENERATING_POOL → AWAITING_ANSWER → EVALUATING → ROUTING → ... → COMPL
 
 **Question serving strategy**: the router only decides *what* to ask next (concept/difficulty/type) — `_serve_question` then looks for a match in the pre-generated pool first, progressively relaxing (type, then difficulty) before ever calling the Generator live. A well-warmed pool (see `scripts/warmup_all_chapters.py`) means most questions serve in well under 100ms; the Generator is only invoked synchronously as a last resort.
 
+**Resilience**: if that last-resort live generation fails (LLM unavailable, or it produces nothing usable), the state machine falls back to re-serving an already-asked question for the same concept rather than failing the request outright, and only returns a clear, retryable error if no question exists for that concept at all. The state machine is also the single source of truth for every session status transition, including report completion — route handlers in `app.py` are thin wrappers around it, not separate decision points.
+
 ---
 
 ## Prerequisites
@@ -112,6 +114,7 @@ neet-adaptive/
 │   ├── evaluator.py          # Answer evaluation + failure mode tagging
 │   ├── gap_analyser.py       # Full end-of-session report computation + LLM-written narrations
 │   ├── router.py             # Adaptive difficulty/concept/type routing + time-aware ability updates
+│   ├── mastery.py            # Shared difficulty-weighted mastery % formula (router + gap analyser both use it)
 │   ├── time_model.py         # Shared expected-time-per-question heuristic (router + report use one definition)
 │   └── ollama_client.py      # Ollama API wrapper with retry + logging
 │
@@ -124,7 +127,8 @@ neet-adaptive/
 │   └── session_state.py      # SessionState, DifficultyHistoryEntry, FailureModeTally
 │
 ├── orchestrator/
-│   ├── state_machine.py      # Session lifecycle (start, answer, route, report)
+│   ├── state_machine.py      # Full session lifecycle: start, answer, route, and report completion -
+│   │                          #   single source of truth for every status transition
 │   └── states.py             # SessionStatus enum
 │
 ├── repositories/
@@ -151,7 +155,9 @@ neet-adaptive/
 └── tests/
     ├── test_router.py        # Routing, time-aware ability updates, rushed-guess damping, tie-breaking
     ├── test_generator.py     # Duplicate/numeric-collision detection + retry-on-discard behavior
-    └── test_gap_analyser.py  # Report metric computation: priority/strength concepts, time-by-type, etc.
+    ├── test_gap_analyser.py  # Report metric computation: priority/strength concepts, time-by-type, etc.
+    ├── test_mastery.py       # Shared difficulty-weighted mastery % formula
+    └── test_state_machine.py # Full session lifecycle, report idempotency, generation-failure fallback
 ```
 
 ---
@@ -194,6 +200,10 @@ neet-adaptive/
 - **Next steps checklist** — a short, concrete list of LLM-written action items generated alongside the rest of the report narration
 - **Gap analysis report** — per-concept verdict (strong / needs_improvement / weak / not_assessed) with LLM-written personalised narrations, grounded in (and never allowed to contradict) the deterministic numbers above
 - **Idempotent report generation** — calling `POST /report` twice returns the same cached report without re-running the LLM
+- **Session recovery feedback** — reloading mid-quiz or after it ends shows a brief banner clarifying whether the session was resumed or had expired, instead of silently dropping the student back in with no context
+- **Resilient question serving** — if live question generation fails (e.g. the LLM is temporarily unavailable), the app falls back to re-serving a question already asked for that concept rather than crashing the request, and only returns a clear, retryable error if no question exists for that concept at all
+- **Pool-status visibility** — a subtle in-quiz indicator appears if the background question pool hasn't finished pre-generating yet, instead of an unexplained delay showing up later
+- **Client-side request timeout** — requests that hang time out after 15s with a clear, retryable message instead of leaving the student staring at an indefinite spinner
 
 ---
 
@@ -207,7 +217,7 @@ pytest tests/
 QUESTIONS_PER_SESSION=5 python app.py
 ```
 
-The test suite (42 tests across 3 files) covers: the router's ability update logic including time-aware modulation and rushed-guess damping, concept selection (weak-concept boosting, coverage caps, randomized tie-breaking), question type rotation, and difficulty targeting (`test_router.py`); generator duplicate and numeric-signature collision detection with retry-on-discard behavior (`test_generator.py`); and gap analyser report metric computation, including priority/strength concept extraction, rationale-note collection, and time-by-question-type breakdowns (`test_gap_analyser.py`).
+The test suite (52 tests across 5 files) covers: the router's ability update logic including time-aware modulation and rushed-guess damping, concept selection (weak-concept boosting, coverage caps, randomized tie-breaking), question type rotation, and difficulty targeting (`test_router.py`); generator duplicate and numeric-signature collision detection with retry-on-discard behavior (`test_generator.py`); gap analyser report metric computation, including priority/strength concept extraction, rationale-note collection, and time-by-question-type breakdowns (`test_gap_analyser.py`); the shared mastery-percentage formula (`test_mastery.py`); and full session-lifecycle orchestration — start-to-completion flow, report idempotency, and just-in-time generation failure fallback (`test_state_machine.py`).
 
 ---
 

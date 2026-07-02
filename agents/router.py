@@ -2,7 +2,7 @@ import math
 import random
 
 import config
-from agents.gap_analyser import _compute_mastery_pct
+from agents.mastery import compute_mastery_pct
 from agents.time_model import expected_time_seconds
 from models.agent_io import ConceptSpec, QuestionSpec
 from models.session_state import SessionState
@@ -92,7 +92,7 @@ def _select_concept(state: SessionState, available_concepts: list[ConceptSpec]) 
         for c in eligible
         if (tally := state.failure_mode_tally.get(c.name))
         and tally.attempt_count > 0
-        and (mastery := _compute_mastery_pct(state.difficulty_history, c.name)) is not None
+        and (mastery := compute_mastery_pct(state.difficulty_history, c.name)) is not None
         and mastery < config.MASTERY_WEAK_THRESHOLD
     }
 

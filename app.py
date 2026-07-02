@@ -14,9 +14,7 @@ import config
 import db
 from orchestrator.state_machine import SessionNotFoundError
 from orchestrator import state_machine
-from orchestrator.states import SessionStatus
 from repositories import taxonomy_repo, report_repo
-from agents import gap_analyser
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("neet_adaptive")
@@ -75,6 +73,12 @@ class AnswerRequest(BaseModel):
     time_taken_seconds: float = Field(..., ge=0)
 
 
+_QUESTION_UNAVAILABLE_RESPONSE = JSONResponse(
+    status_code=503,
+    content={"error": "Question generation is temporarily unavailable. Please try again in a moment."},
+)
+
+
 @app.post("/api/sessions")
 def start_session(payload: StartSessionRequest):
     if payload.grade_level not in config.GRADE_LEVELS:
@@ -87,6 +91,8 @@ def start_session(payload: StartSessionRequest):
         )
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except state_machine.QuestionUnavailableError:
+        return _QUESTION_UNAVAILABLE_RESPONSE
     return result
 
 
@@ -104,24 +110,18 @@ def submit_answer(session_id: str, payload: AnswerRequest):
         return state_machine.submit_answer(session_id, payload.selected_option, payload.time_taken_seconds)
     except SessionNotFoundError:
         return JSONResponse(status_code=404, content={"error": "Session not found."})
+    except state_machine.QuestionUnavailableError:
+        return _QUESTION_UNAVAILABLE_RESPONSE
 
 
 @app.post("/api/sessions/{session_id}/report")
 def generate_report(session_id: str):
-    state = state_machine.get_state(session_id)
-    if state is None:
+    try:
+        report = state_machine.complete_session_report(session_id)
+    except SessionNotFoundError:
         return JSONResponse(status_code=404, content={"error": "Session not found."})
-    if state.status not in (SessionStatus.COMPLETE, SessionStatus.DONE):
+    except state_machine.SessionNotCompleteError:
         return JSONResponse(status_code=409, content={"error": "Session is not yet complete."})
-    existing = report_repo.get(session_id)
-    if existing:
-        return existing.model_dump()
-    concepts = state_machine.available_concepts(state)
-    report = gap_analyser.analyse_session(state, concepts)
-    report_repo.insert(report)
-    state.status = SessionStatus.DONE
-    from repositories import session_repo
-    session_repo.save(state)
     return report.model_dump()
 
 

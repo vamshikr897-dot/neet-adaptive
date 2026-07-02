@@ -623,6 +623,24 @@ select {
     margin: 10px 0 0;
 }
 
+.pool-status-hint {
+    flex-basis: 100%;
+    margin: 2px 0 0;
+    font-style: italic;
+}
+
+.session-banner {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    background: rgba(44, 95, 158, 0.08);
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary-dark);
+    font-size: var(--font-sm2);
+}
+
+.session-banner.hidden { display: none; }
+
 /* ─── Phase 3: Question card accent border ───────────────────────────────── */
 .question-card {
     border-top: 4px solid var(--card-accent, var(--color-primary));
@@ -790,6 +808,7 @@ select {
 }
 .next-btn-top:hover { background: var(--color-primary-dark); }
 .next-btn-top.hidden { display: none; }
+.next-btn-top:disabled { background: #b7c4d6; cursor: not-allowed; }
 
 /* KaTeX math rendering */
 .katex-display { overflow-x: auto; }

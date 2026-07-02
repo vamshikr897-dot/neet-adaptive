@@ -7,16 +7,32 @@ from datetime import datetime, timezone
 import config
 
 logger = logging.getLogger("neet_adaptive.state_machine")
-from agents import evaluator, generator, router
+from agents import evaluator, gap_analyser, generator, router
+from agents.ollama_client import AgentGenerationError
 from models.agent_io import ConceptSpec, QuestionSpec
 from models.question import QuestionPublic
+from models.report import GapReport
 from models.session_state import DifficultyHistoryEntry, FailureModeTally, SessionState
 from orchestrator.states import SessionStatus
-from repositories import question_repo, session_repo, taxonomy_repo
+from repositories import question_repo, report_repo, session_repo, taxonomy_repo
 
 
 class SessionNotFoundError(Exception):
     pass
+
+
+class SessionNotCompleteError(Exception):
+    pass
+
+
+class QuestionUnavailableError(Exception):
+    pass
+
+
+# Session IDs whose background pool-fill (_ensure_pool) hasn't finished yet - a lightweight,
+# process-local signal (no DB persistence needed) so the frontend can show "still preparing
+# questions" instead of an unexplained delay if just-in-time generation is later triggered.
+_pool_generation_in_progress: set[str] = set()
 
 
 def _now() -> str:
@@ -33,22 +49,25 @@ def available_concepts(state: SessionState) -> list[ConceptSpec]:
 
 def _ensure_pool(state: SessionState, concepts: list[ConceptSpec], min_per_concept: int | None = None) -> None:
     """Generates questions only for concepts below min_per_concept (defaults to POOL_QUESTIONS_PER_CONCEPT)."""
-    target = min_per_concept if min_per_concept is not None else config.POOL_QUESTIONS_PER_CONCEPT
-    to_generate = []
-    for concept in concepts:
-        existing = question_repo.count_by_concept_difficulty(state.subject, state.chapter, concept.name)
-        existing_count = sum(existing.values())
-        if existing_count < target:
-            to_generate.append(concept)
+    try:
+        target = min_per_concept if min_per_concept is not None else config.POOL_QUESTIONS_PER_CONCEPT
+        to_generate = []
+        for concept in concepts:
+            existing = question_repo.count_by_concept_difficulty(state.subject, state.chapter, concept.name)
+            existing_count = sum(existing.values())
+            if existing_count < target:
+                to_generate.append(concept)
 
-    if to_generate:
-        try:
-            questions = generator.generate_pool(
-                state.subject, state.chapter, to_generate, questions_per_concept=target
-            )
-            question_repo.insert_questions(questions, source="pool")
-        except Exception:
-            logger.exception("Background pool generation failed")
+        if to_generate:
+            try:
+                questions = generator.generate_pool(
+                    state.subject, state.chapter, to_generate, questions_per_concept=target
+                )
+                question_repo.insert_questions(questions, source="pool")
+            except Exception:
+                logger.exception("Background pool generation failed")
+    finally:
+        _pool_generation_in_progress.discard(state.session_id)
 
 
 def _mastery_reached(state: SessionState, concepts: list[ConceptSpec]) -> bool:
@@ -81,12 +100,24 @@ def _serve_question(state: SessionState, spec: QuestionSpec) -> dict:
         spec.concept, spec.target_difficulty, spec.question_type, state.asked_question_ids
     )
     if record is None:
-        concept_spec = ConceptSpec(name=spec.concept, pyq_weight=1.0)
-        question = generator.generate_single_question(
-            state.subject, state.chapter, concept_spec, spec.target_difficulty, spec.question_type
-        )
-        ids = question_repo.insert_questions([question], source="just_in_time")
-        record = question_repo.get_by_id(ids[0])
+        try:
+            concept_spec = ConceptSpec(name=spec.concept, pyq_weight=1.0)
+            question = generator.generate_single_question(
+                state.subject, state.chapter, concept_spec, spec.target_difficulty, spec.question_type
+            )
+            ids = question_repo.insert_questions([question], source="just_in_time")
+            record = question_repo.get_by_id(ids[0])
+        except (AgentGenerationError, ValueError):
+            # Live generation failed (LLM unavailable or produced nothing usable) - fall back to
+            # repeating an already-asked question for this concept rather than crashing the
+            # request. Only raise if literally nothing exists for the concept at all.
+            logger.warning(
+                "Just-in-time generation failed for concept=%s, falling back to a repeat question",
+                spec.concept,
+            )
+            record = question_repo.find_matching(spec.concept, None, None, exclude_ids=[])
+            if record is None:
+                raise QuestionUnavailableError(spec.concept)
 
     question_repo.mark_used(record["question_id"])
     state.current_question_id = record["question_id"]
@@ -103,6 +134,29 @@ def _serve_question(state: SessionState, spec: QuestionSpec) -> dict:
 
 def get_state(session_id: str) -> SessionState | None:
     return session_repo.get(session_id)
+
+
+def complete_session_report(session_id: str) -> GapReport:
+    state = session_repo.get(session_id)
+    if state is None:
+        raise SessionNotFoundError(session_id)
+    if state.status not in (SessionStatus.COMPLETE, SessionStatus.DONE):
+        raise SessionNotCompleteError(session_id)
+
+    existing = report_repo.get(session_id)
+    if existing:
+        return existing
+
+    state.status = SessionStatus.GAP_ANALYSIS
+    session_repo.save(state)
+
+    concepts = available_concepts(state)
+    report = gap_analyser.analyse_session(state, concepts)
+    report_repo.insert(report)
+
+    state.status = SessionStatus.DONE
+    session_repo.save(state)
+    return report
 
 
 def start_new(grade_level: str, subject: str, chapter: str, selected_concepts: list[str]) -> dict:
@@ -133,36 +187,42 @@ def start_new(grade_level: str, subject: str, chapter: str, selected_concepts: l
     state.status = SessionStatus.AWAITING_ANSWER
     session_repo.save(state)
 
-    response = {
-        "session_id": state.session_id,
-        "question": QuestionPublic.from_record(record).model_dump(),
-        "question_index": state.current_question_index,
-        "safety_cap": config.SESSION_SAFETY_CAP,
-        "status": state.status,
-    }
-
-    # Stage 2 (background): fill the full pool while user answers the first question
+    # Stage 2 (background): fill the full pool while user answers the first question. Marked
+    # in-progress *before* the thread starts so the response below always reflects reality.
+    _pool_generation_in_progress.add(state.session_id)
     threading.Thread(
         target=_ensure_pool,
         args=(state, concepts),
         daemon=True,
     ).start()
 
-    return response
+    return {
+        "session_id": state.session_id,
+        "question": QuestionPublic.from_record(record).model_dump(),
+        "question_index": state.current_question_index,
+        "safety_cap": config.SESSION_SAFETY_CAP,
+        "status": state.status,
+        "pool_ready": state.session_id not in _pool_generation_in_progress,
+    }
 
 
 def get_current(session_id: str) -> dict:
     state = session_repo.get(session_id)
     if state is None:
         raise SessionNotFoundError(session_id)
+    pool_ready = session_id not in _pool_generation_in_progress
     if state.current_question_id is None:
-        return {"question": None, "question_index": state.current_question_index, "safety_cap": config.SESSION_SAFETY_CAP, "status": state.status}
+        return {
+            "question": None, "question_index": state.current_question_index,
+            "safety_cap": config.SESSION_SAFETY_CAP, "status": state.status, "pool_ready": pool_ready,
+        }
     record = question_repo.get_by_id(state.current_question_id)
     return {
         "question": QuestionPublic.from_record(record).model_dump(),
         "question_index": state.current_question_index,
         "safety_cap": config.SESSION_SAFETY_CAP,
         "status": state.status,
+        "pool_ready": pool_ready,
     }
 
 
@@ -246,5 +306,6 @@ def submit_answer(session_id: str, selected_option: str | None, time_taken_secon
         response["status"] = state.status
         response["question_index"] = state.current_question_index
 
+    response["pool_ready"] = session_id not in _pool_generation_in_progress
     session_repo.save(state)
     return response

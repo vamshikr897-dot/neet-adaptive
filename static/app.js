@@ -34,6 +34,7 @@ const state = {
     currentQuestion: null,
     currentQuestionIndex: null,
     questionStartedAt: null,
+    poolReady: true,
 };
 
 // ─── Picker DOM refs ──────────────────────────────────────────────────────────
@@ -41,6 +42,21 @@ const chapterListEl = document.getElementById("chapter-list");
 const startBtn = document.getElementById("start-btn");
 const subjectSelectEl = document.getElementById("subject-select");
 const pickerScreenEl = document.getElementById("picker-screen");
+const sessionBannerEl = document.getElementById("session-banner");
+
+let sessionBannerTimeout = null;
+
+function showSessionBanner(text) {
+    sessionBannerEl.textContent = text;
+    sessionBannerEl.classList.remove("hidden");
+    if (sessionBannerTimeout) clearTimeout(sessionBannerTimeout);
+    sessionBannerTimeout = setTimeout(() => sessionBannerEl.classList.add("hidden"), 6000);
+}
+
+function hideSessionBanner() {
+    if (sessionBannerTimeout) clearTimeout(sessionBannerTimeout);
+    sessionBannerEl.classList.add("hidden");
+}
 
 function applySubjectTheme(subject) {
     const s = SUBJECT_STYLE[subject] || { color: "#2c5f9e", bg: "#eff6ff" };
@@ -85,11 +101,14 @@ async function init() {
                 state.sessionId = savedSession;
                 state.currentQuestion = data.question;
                 state.currentQuestionIndex = data.question_index;
+                state.poolReady = data.pool_ready !== false;
+                showSessionBanner(`Resumed your quiz — continuing from question ${data.question_index}.`);
                 showQuizScreen();
                 return;
             }
             if (data.status === "complete" || data.status === "done") {
                 state.sessionId = savedSession;
+                showSessionBanner("Resumed your session — here's your report.");
                 showReportScreen();
                 return;
             }
@@ -97,6 +116,7 @@ async function init() {
             // Session expired or not found — fall through to picker
         }
         localStorage.removeItem("neet_session_id");
+        showSessionBanner("Your previous session expired — starting fresh.");
     }
 
     await loadChapters();
@@ -206,7 +226,9 @@ async function startAssessment() {
         state.sessionId = result.session_id;
         state.currentQuestion = result.question;
         state.currentQuestionIndex = result.question_index;
+        state.poolReady = result.pool_ready !== false;
         localStorage.setItem("neet_session_id", result.session_id);
+        hideSessionBanner();
         showQuizScreen();
     } catch (err) {
         alert(`Could not start assessment: ${err.message}`);
@@ -266,6 +288,7 @@ const quizSessionMetaEl = document.getElementById("quiz-session-meta");
 document.getElementById("reset-btn").addEventListener("click", () => {
     if (!confirm("Start over? Your current session progress will be lost.")) return;
     stopTimer();
+    hideSessionBanner();
     localStorage.removeItem("neet_session_id");
     state.sessionId = null;
     state.currentQuestion = null;
@@ -300,6 +323,7 @@ function advanceToNext(result) {
     } else {
         state.currentQuestion = result.next_question;
         state.currentQuestionIndex = result.question_index;
+        state.poolReady = result.pool_ready !== false;
         state.questionStartedAt = Date.now();
         renderQuestion();
     }
@@ -309,15 +333,21 @@ function renderQuestion() {
     const q = state.currentQuestion;
     questionCounterEl.textContent = `Question ${state.currentQuestionIndex || 1}`;
     nextBtnTopEl.classList.add("hidden");
+    nextBtnTopEl.disabled = false;
     questionTimerEl.style.visibility = "";
     startTimer();
 
     const s = SUBJECT_STYLE[q.subject] || { color: "#2c5f9e", bg: "#eff6ff", icon: "📚" };
     questionCardEl.style.setProperty("--card-accent", s.color);
 
+    const poolHint = state.poolReady === false
+        ? `<p class="concept-hint pool-status-hint">Preparing more questions in the background…</p>`
+        : "";
+
     quizSessionMetaEl.innerHTML = `
         <span class="meta-subject-pill" style="background:${s.bg};color:${s.color}">${s.icon} ${escapeHtml(q.subject)}</span>
         <span class="meta-chapter-tag" style="border-color:${s.color};color:${s.color}">${escapeHtml(q.chapter)}</span>
+        ${poolHint}
     `;
 
     const optionsHtml = Object.entries(q.options).map(([key, text]) => `
@@ -468,7 +498,11 @@ function showAnswerFeedback(selectedOption, result) {
     // Show top-right Next button
     nextBtnTopEl.textContent = result.status === "complete" ? "View Report →" : "Next →";
     nextBtnTopEl.classList.remove("hidden");
-    nextBtnTopEl.onclick = () => advanceToNext(result);
+    nextBtnTopEl.disabled = false;
+    nextBtnTopEl.onclick = () => {
+        nextBtnTopEl.disabled = true;
+        advanceToNext(result);
+    };
 }
 
 // ─── Report screen ────────────────────────────────────────────────────────────

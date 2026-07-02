@@ -1,5 +1,22 @@
+const REQUEST_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(url, options, ms = REQUEST_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+        if (err.name === "AbortError") {
+            throw new Error("Request timed out — the server may be busy generating a question. Please try again.");
+        }
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function getJSON(url) {
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `GET ${url} failed (${res.status})`);
@@ -8,7 +25,7 @@ async function getJSON(url) {
 }
 
 async function postJSON(url, payload) {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload || {}),

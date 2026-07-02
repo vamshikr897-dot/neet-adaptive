@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import config
 from agents.generator import _TYPE_CYCLE
+from agents.mastery import compute_mastery_pct
 from agents.ollama_client import AgentGenerationError, call_structured
 from agents.time_model import expected_time_seconds
 from models.agent_io import ConceptSpec, GapAnalyserLLMResult
@@ -26,17 +27,6 @@ from models.session_state import DifficultyHistoryEntry, FailureModeTally, Sessi
 logger = logging.getLogger("neet_adaptive.gap_analyser")
 
 _FAILURE_MODES = ("conceptual_gap", "calculation_error", "exception_not_known")
-
-
-def _compute_mastery_pct(history: list[DifficultyHistoryEntry], concept: str) -> float | None:
-    entries = [e for e in history if e.concept == concept]
-    if not entries:
-        return None
-    total_difficulty = sum(e.difficulty for e in entries)
-    if total_difficulty == 0:
-        return None
-    correct_difficulty = sum(e.difficulty for e in entries if e.correct)
-    return 100.0 * correct_difficulty / total_difficulty
 
 
 def _compute_verdict(tally: FailureModeTally | None, mastery_pct: float | None) -> tuple[str, str]:
@@ -429,7 +419,7 @@ def analyse_session(state: SessionState, concepts: list[ConceptSpec]) -> GapRepo
     verdicts: list[ConceptVerdict] = []
     for concept in all_concepts:
         tally = state.failure_mode_tally.get(concept)
-        mastery_pct = _compute_mastery_pct(state.difficulty_history, concept)
+        mastery_pct = compute_mastery_pct(state.difficulty_history, concept)
         verdict_str, dominant = _compute_verdict(tally, mastery_pct)
         low_confidence = bool(tally and 0 < tally.attempt_count < config.MASTERY_LOW_CONFIDENCE_MIN_ATTEMPTS)
         verdicts.append(
