@@ -12,6 +12,7 @@ from starlette.requests import Request
 
 import config
 import db
+import seed_taxonomy
 from orchestrator.state_machine import SessionNotFoundError
 from orchestrator import state_machine
 from repositories import taxonomy_repo, report_repo
@@ -28,7 +29,12 @@ BASE_DIR = Path(__file__).resolve().parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
-    logger.info("DB ready at %s", config.DB_PATH)
+    # Idempotent (INSERT OR IGNORE / ON CONFLICT DO UPDATE) and cheap, so it's safe to run on
+    # every boot - required on hosts with no persistent disk (e.g. Render's Free tier), where
+    # the taxonomy would otherwise be empty after every restart/redeploy with no way to
+    # manually reseed it (no Shell access on that plan either).
+    seed_taxonomy.seed()
+    logger.info("DB ready at %s (taxonomy seeded)", config.DB_PATH)
     yield
 
 
