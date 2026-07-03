@@ -98,6 +98,22 @@ A larger set of tunable thresholds (mastery verdict cutoffs, NEET marking scheme
 
 ---
 
+## Deployment (Render)
+
+This app needs a **Web Service** (a long-running HTTP process), not a static site or background worker — `render.yaml` in the repo root is a ready-to-use [Render Blueprint](https://render.com/docs/blueprint-spec) covering all of this.
+
+- **Build command**: `pip install -r requirements.txt`
+- **Start command**: `uvicorn app:app --host 0.0.0.0 --port $PORT` — the `HOST`/`PORT` env vars are read by `app.py`'s entry point (falling back to the local-dev defaults `127.0.0.1:8010` when unset), so the same file works locally and on Render without changes.
+- **Persistent disk is required**: the SQLite database (`DB_PATH`) and LLM call log (`LLM_CALL_LOG_PATH`) are files on disk, and Render's default filesystem is wiped on every redeploy/restart. The Blueprint mounts a 1 GB disk at `/var/data` and points both paths at it. Persistent disks need Render's **Starter plan or above** — the Free tier doesn't support them, and using this app on Free means losing all sessions/questions on every restart.
+- **Single instance only** — the app keeps in-memory state (background pool-generation status) and uses a single-file SQLite database with no concurrent-writer support. Do not enable autoscaling or run more than one instance; `render.yaml` sets `numInstances: 1` for this reason.
+- **Secrets**: `OLLAMA_API_KEY` is marked `sync: false` in `render.yaml`, meaning it must be set manually in the Render dashboard's Environment tab rather than committed to the repo.
+- **One-time setup after the first deploy**, via Render's Shell tab:
+  - `python seed_taxonomy.py` — populates the taxonomy tables (idempotent, safe to re-run).
+  - Optionally `python scripts/warmup_all_chapters.py` — pre-warms the question pool so early users don't wait on live generation. This makes real LLM calls, so it's worth doing once but not on every deploy.
+- **Free-tier cold starts**: if not on a paid always-on plan, the service spins down after inactivity; combined with background pool generation, the first request after a cold start may be slower than usual.
+
+---
+
 ## Project Structure
 
 ```

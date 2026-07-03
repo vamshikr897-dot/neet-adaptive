@@ -143,16 +143,25 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 if __name__ == "__main__":
+    import os
     import socket
     import sys
 
     import uvicorn
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        if probe.connect_ex(("127.0.0.1", 8010)) == 0:
-            sys.exit(
-                "Port 8010 is already in use by another process (possibly serving stale "
-                "code from before your last edit). Stop it first, then restart."
-            )
+    # HOST/PORT let this same entry point work both for local dev (defaults below, with the
+    # stale-server guard + autoreload) and for platforms like Render that inject their own
+    # PORT and expect a 0.0.0.0 bind with no reload - see README's Deployment section.
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8010"))
+    is_local_default = host == "127.0.0.1" and port == 8010
 
-    uvicorn.run("app:app", host="127.0.0.1", port=8010, reload=True)
+    if is_local_default:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            if probe.connect_ex((host, port)) == 0:
+                sys.exit(
+                    "Port 8010 is already in use by another process (possibly serving stale "
+                    "code from before your last edit). Stop it first, then restart."
+                )
+
+    uvicorn.run("app:app", host=host, port=port, reload=is_local_default)

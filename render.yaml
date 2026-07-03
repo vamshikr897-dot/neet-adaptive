@@ -1,0 +1,33 @@
+# Render Blueprint for neet-adaptive. See README.md's "Deployment (Render)" section for the
+# manual dashboard equivalent and one-time post-deploy setup (taxonomy seeding, optional warmup).
+services:
+  - type: web
+    name: neet-adaptive
+    env: python
+    plan: starter # persistent disks (below) require Starter or above - not available on Free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    numInstances: 1 # do not autoscale - the app keeps in-memory state and uses a single SQLite file
+    disk:
+      name: neet-adaptive-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: OLLAMA_HOST
+        value: https://ollama.com
+      - key: OLLAMA_API_KEY
+        sync: false # set manually in the Render dashboard - do not commit real keys here
+      - key: OLLAMA_MODEL
+        value: gpt-oss:120b
+      - key: DB_PATH
+        value: /var/data/neet.db
+      - key: TAXONOMY_PATH
+        value: ./data/taxonomy.json
+      - key: LLM_CALL_LOG_PATH
+        value: /var/data/llm_call_log.jsonl
+      - key: GENERATOR_BATCH_SIZE
+        value: "3"
+      - key: POOL_QUESTIONS_PER_CONCEPT
+        value: "10"
+      - key: QUESTIONS_PER_SESSION
+        value: "10"
